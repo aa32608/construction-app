@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { slugify } from '@/lib/format';
+import { useLanguage, type Language } from '@/lib/translations';
 import type {
   DashboardStats,
   DashboardUser,
@@ -50,20 +51,20 @@ function NavItem({
   label,
   active = false,
   badge,
-  onClick,
+  href,
 }: {
   icon: any;
   label: string;
   active?: boolean;
   badge?: string;
-  onClick?: () => void;
+  href?: string;
 }) {
   return (
-    <button className={'nav-item ' + (active ? 'active' : '')} onClick={onClick}>
+    <a href={href || '#'} className={'nav-item ' + (active ? 'active' : '')} style={{ textDecoration: 'none', color: 'inherit' }}>
       <Icon size={18} />
       <span>{label}</span>
       {badge && <b>{badge}</b>}
-    </button>
+    </a>
   );
 }
 
@@ -77,6 +78,26 @@ export default function Dashboard({
   todayLabel,
 }: DashboardProps) {
   const router = useRouter();
+  const [lang, setLang] = useState<Language>('en');
+  useEffect(() => {
+    const saved = localStorage.getItem('lang') as Language;
+    if (saved && ['en', 'sq', 'mk'].includes(saved)) {
+      setLang(saved);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleStorage = () => {
+      const saved = localStorage.getItem('lang') as Language;
+      if (saved && ['en', 'sq', 'mk'].includes(saved)) {
+        setLang(saved);
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
+  const { t } = useLanguage(lang);
   const [dark, setDark] = useState(false);
   const [mobile, setMobile] = useState(false);
   const [query, setQuery] = useState('');
@@ -229,21 +250,21 @@ export default function Dashboard({
           </div>
           <ChevronDown size={15} />
         </div>
-        <div className="nav-label">Workspace</div>
+        <div className="nav-label">{t('workspace')}</div>
         <nav>
-          <NavItem icon={LayoutDashboard} label="Overview" active />
-          <NavItem icon={ClipboardList} label="Projects" badge={String(stats.activeProjects)} />
-          <NavItem icon={Users} label="People" />
-          <NavItem icon={Package} label="Inventory" badge={stats.lowStock ? String(stats.lowStock) : undefined} />
-          <NavItem icon={FileText} label="Documents" />
+          <NavItem icon={LayoutDashboard} label={t('overview')} active href="/" />
+          <NavItem icon={ClipboardList} label={t('projects')} badge={String(stats.activeProjects)} href="/projects" />
+          <NavItem icon={Users} label={t('people')} href="/people" />
+          <NavItem icon={Package} label={t('inventory')} badge={stats.lowStock ? String(stats.lowStock) : undefined} href="/inventory" />
+          <NavItem icon={FileText} label={t('documents')} href="/documents" />
         </nav>
-        <div className="nav-label market-label">Connect</div>
+        <div className="nav-label market-label">{t('connect')}</div>
         <nav>
-          <NavItem icon={ShoppingBag} label="Marketplace" />
-          <NavItem icon={Bell} label="Notifications" badge="3" />
+          <NavItem icon={ShoppingBag} label={t('marketplace')} href="/marketplace" />
+          <NavItem icon={Bell} label="Notifications" badge="3" href="#" />
         </nav>
         <div className="side-bottom">
-          <NavItem icon={Settings} label="Settings" />
+          <NavItem icon={Settings} label={t('settings')} href="#" />
           <div className="profile">
             <div className="avatar">{user.initials}</div>
             <div>
@@ -270,7 +291,7 @@ export default function Dashboard({
             <Menu size={21} />
           </button>
           <div className="crumb">
-            Workspace <span>/</span> <strong>Overview</strong>
+            {t('workspace')} <span>/</span> <strong>{t('overview')}</strong>
           </div>
           <div className="header-actions">
             <div className="search">
@@ -278,9 +299,35 @@ export default function Dashboard({
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search projects..."
+                placeholder={t('search')}
               />
               <kbd>⌘ K</kbd>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <select
+                value={lang}
+                onChange={(e) => {
+                  const newLang = e.target.value as Language;
+                  setLang(newLang);
+                  localStorage.setItem('lang', newLang);
+                  window.dispatchEvent(new Event('storage'));
+                }}
+                style={{
+                  border: '1px solid #edf0f3',
+                  borderRadius: 6,
+                  padding: '5px 8px',
+                  fontSize: 12,
+                  background: '#fff',
+                  cursor: 'pointer',
+                  color: '#3a4150',
+                  fontWeight: 500,
+                  outline: 'none',
+                }}
+              >
+                <option value="en">EN</option>
+                <option value="sq">SQ</option>
+                <option value="mk">MK</option>
+              </select>
             </div>
             <button className="icon-btn" onClick={() => setDark(!dark)}>
               {dark ? <Sun size={18} /> : <Moon size={18} />}
@@ -307,14 +354,14 @@ export default function Dashboard({
                   </p>
                 </div>
                 <button className="primary" onClick={() => setShowNewProject(true)}>
-                  <Plus size={17} /> New project
+                  <Plus size={17} /> {t('newProject')}
                 </button>
               </div>
 
               <section className="stat-grid">
                 <div className="stat-card">
                   <div className="stat-top">
-                    <span>Active projects</span>
+                    <span>{t('activeProjects')}</span>
                     <div className="stat-icon blue">
                       <ClipboardList size={18} />
                     </div>
@@ -326,7 +373,7 @@ export default function Dashboard({
                 </div>
                 <div className="stat-card">
                   <div className="stat-top">
-                    <span>Committed budget</span>
+                    <span>{t('committedBudget')}</span>
                     <div className="stat-icon green">€</div>
                   </div>
                   <strong>{stats.committedBudget}</strong>
@@ -336,7 +383,7 @@ export default function Dashboard({
                 </div>
                 <div className="stat-card">
                   <div className="stat-top">
-                    <span>Open tasks</span>
+                    <span>{t('openTasks')}</span>
                     <div className="stat-icon orange">
                       <Clock3 size={18} />
                     </div>
@@ -350,7 +397,7 @@ export default function Dashboard({
                 </div>
                 <div className="stat-card">
                   <div className="stat-top">
-                    <span>Low stock items</span>
+                    <span>{t('lowStockItems')}</span>
                     <div className="stat-icon red">
                       <Package size={18} />
                     </div>
@@ -368,7 +415,7 @@ export default function Dashboard({
                 <section className="panel projects">
                   <div className="panel-head">
                     <div>
-                      <h2>Projects</h2>
+                      <h2>{t('projects')}</h2>
                       <p>Your active projects at a glance</p>
                     </div>
                     <button className="text-btn">
@@ -418,7 +465,7 @@ export default function Dashboard({
                 <section className="panel tasks">
                   <div className="panel-head">
                     <div>
-                      <h2>My tasks</h2>
+                      <h2>{t('openTasks')}</h2>
                       <p>{stats.openTasks} task{stats.openTasks === 1 ? '' : 's'} need your attention</p>
                     </div>
                     <button className="text-btn">
@@ -428,7 +475,7 @@ export default function Dashboard({
                   <div className="task-list">
                     {taskItems.length === 0 && (
                       <p className="subhead" style={{ padding: '8px 0' }}>
-                        Nothing on your plate. Add a task to get started.
+                        {t('noTasks')}
                       </p>
                     )}
                     {taskItems.map((t) => (
@@ -449,7 +496,7 @@ export default function Dashboard({
                     ))}
                   </div>
                   <button className="add-task" onClick={() => setShowNewTask(true)}>
-                    <Plus size={16} /> Add a task
+                    <Plus size={16} /> {t('addTask')}
                   </button>
                 </section>
               </div>
@@ -458,7 +505,7 @@ export default function Dashboard({
                 <section className="panel activity">
                   <div className="panel-head">
                     <div>
-                      <h2>Recent activity</h2>
+                      <h2>{t('recentActivity')}</h2>
                       <p>Updates from your team</p>
                     </div>
                     <button className="text-btn">
@@ -477,10 +524,10 @@ export default function Dashboard({
                 <section className="tip">
                   <div className="tip-icon">✦</div>
                   <div>
-                    <p className="eyebrow">ConstructOS insight</p>
-                    <h3>Keep your projects moving</h3>
+                    <p className="eyebrow">{t('insight')}</p>
+                    <h3>{t('keepMoving')}</h3>
                     <p>
-                      Assign tasks with due dates so your team always knows what to focus on next.
+                      {t('assignTasks')}
                     </p>
                   </div>
                 </section>
@@ -491,16 +538,16 @@ export default function Dashboard({
               <div className="panel" style={{ maxWidth: 460, width: '100%', margin: '40px auto' }}>
                 <div className="panel-head" style={{ marginBottom: 16 }}>
                   <div>
-                    <p className="eyebrow">One last step</p>
-                    <h2>Create your workspace</h2>
+                    <p className="eyebrow">{t('oneLastStep')}</p>
+                    <h2>{t('createWorkspace')}</h2>
                     <p className="subhead">
-                      Every project, task and document lives inside a company workspace.
+                      {t('everyProject')}
                     </p>
                   </div>
                 </div>
                 <form onSubmit={createCompany}>
                   <label className="modal label" style={{ fontSize: 11, fontWeight: 600, color: '#596170', display: 'block' }}>
-                    Company name
+                    {t('companyName')}
                     <input
                       autoFocus
                       value={companyInput}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useState, useTransition, useEffect } from 'react';
 import {
   Plus,
   Search,
@@ -11,10 +11,12 @@ import {
   Shield,
   Briefcase,
   Loader2,
+  X,
 } from 'lucide-react';
 import { getInitials } from '@/lib/format';
 import type { CompanyMember, DashboardUser, Membership, DashboardStats } from '@/lib/data';
 import { inviteUserAction, updateMemberRoleAction, removeMemberAction } from '@/app/actions/people';
+import { useLanguage, type Language } from '@/lib/translations';
 
 const ROLE_CONFIG: Record<string, { label: string; color: string; bg: string; icon: any }> = {
   owner: { label: 'Owner', color: '#8b5cf6', bg: '#f5f3ff', icon: Shield },
@@ -43,6 +45,39 @@ export default function PeopleClient({ user, membership, members: initialMembers
   const [inviteSuccess, setInviteSuccess] = useState('');
   const [isPending, startTransition] = useTransition();
 
+  const [lang, setLang] = useState<Language>('en');
+  useEffect(() => {
+    const saved = localStorage.getItem('lang') as Language;
+    if (saved && ['en', 'sq', 'mk'].includes(saved)) {
+      setLang(saved);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleStorage = () => {
+      const saved = localStorage.getItem('lang') as Language;
+      if (saved && ['en', 'sq', 'mk'].includes(saved)) {
+        setLang(saved);
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
+  const { t } = useLanguage(lang);
+
+  const [customRoles, setCustomRoles] = useState<{ name: string; permissions: string[] }[]>([]);
+  const [showCreateRole, setShowCreateRole] = useState(false);
+  const [newRoleName, setNewRoleName] = useState('');
+  const [newRolePermissions, setNewRolePermissions] = useState<string[]>([]);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('customRoles');
+    if (saved) {
+      setCustomRoles(JSON.parse(saved));
+    }
+  }, []);
+
   const canManage = membership && ['owner', 'manager'].includes(membership.role);
   const isOwner = membership?.role === 'owner';
 
@@ -57,7 +92,24 @@ export default function PeopleClient({ user, membership, members: initialMembers
     { value: 'engineer', label: 'Engineer' },
     { value: 'manager', label: 'Manager' },
     { value: 'owner', label: 'Owner' },
+    ...customRoles.map((r) => ({ value: r.name.toLowerCase().replace(/\s+/g, '-'), label: r.name })),
   ];
+
+  function handleCreateRole(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newRoleName.trim()) return;
+    const exists = customRoles.some((r) => r.name.toLowerCase() === newRoleName.toLowerCase());
+    if (exists) {
+      alert('A role with this name already exists.');
+      return;
+    }
+    const updated = [...customRoles, { name: newRoleName.trim(), permissions: newRolePermissions }];
+    setCustomRoles(updated);
+    localStorage.setItem('customRoles', JSON.stringify(updated));
+    setNewRoleName('');
+    setNewRolePermissions([]);
+    setShowCreateRole(false);
+  }
 
   async function handleInvite(event: React.FormEvent) {
     event.preventDefault();
@@ -108,6 +160,15 @@ export default function PeopleClient({ user, membership, members: initialMembers
   }
 
   function getRoleConfig(role: string) {
+    const customMatch = customRoles.find((r) => r.name.toLowerCase().replace(/\s+/g, '-') === role);
+    if (customMatch) {
+      return {
+        label: customMatch.name,
+        color: '#d97706',
+        bg: '#fef3c7',
+        icon: Shield,
+      };
+    }
     return ROLE_CONFIG[role] ?? ROLE_CONFIG.employee;
   }
 
@@ -133,7 +194,7 @@ export default function PeopleClient({ user, membership, members: initialMembers
             <small>{membership ? 'Workspace' : 'No company yet'}</small>
           </div>
         </div>
-        <div className="nav-label">Workspace</div>
+        <div className="nav-label">{t('workspace')}</div>
         <nav>
           <a href="/" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -142,13 +203,13 @@ export default function PeopleClient({ user, membership, members: initialMembers
               <rect x="3" y="14" width="7" height="7" rx="1" />
               <rect x="14" y="14" width="7" height="7" rx="1" />
             </svg>
-            <span>Overview</span>
+            <span>{t('overview')}</span>
           </a>
           <a href="/projects" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
             </svg>
-            <span>Projects</span>
+            <span>{t('projects')}</span>
             <b>{stats.activeProjects}</b>
           </a>
           <a href="/people" className="nav-item active" style={{ textDecoration: 'none', color: 'inherit' }}>
@@ -156,33 +217,33 @@ export default function PeopleClient({ user, membership, members: initialMembers
               <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
               <circle cx="9" cy="7" r="4" />
             </svg>
-            <span>People</span>
+            <span>{t('people')}</span>
             <b>{members.length}</b>
           </a>
-          <a href="#" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <a href="/inventory" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
             </svg>
-            <span>Inventory</span>
+            <span>{t('inventory')}</span>
             {stats.lowStock && <b>{stats.lowStock}</b>}
           </a>
-          <a href="#" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <a href="/documents" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
               <polyline points="14 2 14 8 20 8" />
             </svg>
-            <span>Documents</span>
+            <span>{t('documents')}</span>
           </a>
         </nav>
-        <div className="nav-label market-label">Connect</div>
+        <div className="nav-label market-label">{t('connect')}</div>
         <nav>
-          <a href="#" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <a href="/marketplace" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="9" cy="21" r="1" />
               <circle cx="20" cy="21" r="1" />
               <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
             </svg>
-            <span>Marketplace</span>
+            <span>{t('marketplace')}</span>
           </a>
           <a href="#" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -207,7 +268,7 @@ export default function PeopleClient({ user, membership, members: initialMembers
       <main className="main">
         <header>
           <div className="crumb">
-            Workspace <span>/</span> <strong>People</strong>
+            {t('workspace')} <span>/</span> <strong>{t('people')}</strong>
           </div>
           <div className="header-actions">
             <div className="search">
@@ -215,9 +276,35 @@ export default function PeopleClient({ user, membership, members: initialMembers
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search people..."
+                placeholder={t('search')}
               />
               <kbd>⌘ K</kbd>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <select
+                value={lang}
+                onChange={(e) => {
+                  const newLang = e.target.value as Language;
+                  setLang(newLang);
+                  localStorage.setItem('lang', newLang);
+                  window.dispatchEvent(new Event('storage'));
+                }}
+                style={{
+                  border: '1px solid #edf0f3',
+                  borderRadius: 6,
+                  padding: '5px 8px',
+                  fontSize: 12,
+                  background: '#fff',
+                  cursor: 'pointer',
+                  color: '#3a4150',
+                  fontWeight: 500,
+                  outline: 'none',
+                }}
+              >
+                <option value="en">EN</option>
+                <option value="sq">SQ</option>
+                <option value="mk">MK</option>
+              </select>
             </div>
             <div className="filter-select">
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -229,11 +316,19 @@ export default function PeopleClient({ user, membership, members: initialMembers
                 <option value="manager">Manager</option>
                 <option value="engineer">Engineer</option>
                 <option value="employee">Employee</option>
+                {customRoles.map((r) => (
+                  <option key={r.name} value={r.name.toLowerCase().replace(/\s+/g, '-')}>{r.name}</option>
+                ))}
               </select>
             </div>
+            {isOwner && (
+              <button className="secondary" onClick={() => setShowCreateRole(true)} disabled={busy || isPending} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Shield size={17} /> {t('createRole')}
+              </button>
+            )}
             {canManage && (
               <button className="primary" onClick={() => setShowInvite(true)} disabled={busy || isPending}>
-                <Plus size={17} /> Invite member
+                <Plus size={17} /> {t('inviteMember')}
               </button>
             )}
           </div>
@@ -242,8 +337,8 @@ export default function PeopleClient({ user, membership, members: initialMembers
         <div className="content">
           <div className="welcome">
             <div>
-              <p className="eyebrow">Team</p>
-              <h1>Company members</h1>
+              <p className="eyebrow">{t('people')}</p>
+              <h1>{t('companyMembers')}</h1>
               <p className="subhead">
                 {members.length} member{members.length === 1 ? '' : 's'} in {membership?.companyName ?? 'your workspace'}
               </p>
@@ -295,7 +390,7 @@ export default function PeopleClient({ user, membership, members: initialMembers
                           <Icon size={10} style={{ marginRight: 4, verticalAlign: 'middle' }} />
                           {config.label}
                         </span>
-                        <span className="joined-date">Joined {new Date(member.joinedAt).toLocaleDateString()}</span>
+                        <span className="joined-date" suppressHydrationWarning>Joined {new Date(member.joinedAt).toLocaleDateString()}</span>
                       </div>
                     </div>
                     {canManage && !isCurrentUser && (
@@ -404,6 +499,70 @@ export default function PeopleClient({ user, membership, members: initialMembers
                 </button>
               </div>
               <style>{`.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+            </form>
+          </div>
+        )}
+
+        {showCreateRole && (
+          <div className="modal-backdrop" onClick={() => setShowCreateRole(false)}>
+            <form className="modal" onSubmit={handleCreateRole} onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <div>
+                  <p className="eyebrow">{t('roles')}</p>
+                  <h2>{t('createRole')}</h2>
+                </div>
+                <button type="button" className="modal-close" onClick={() => setShowCreateRole(false)}>
+                  <X size={18} />
+                </button>
+              </div>
+              <div style={{ display: 'grid', gap: 16 }}>
+                <label>
+                  {t('roleName')} <span style={{ color: '#ef4444' }}>*</span>
+                  <input
+                    autoFocus
+                    value={newRoleName}
+                    onChange={(e) => setNewRoleName(e.target.value)}
+                    placeholder="e.g. Lead Architect"
+                    required
+                  />
+                </label>
+                <div style={{ marginTop: 8 }}>
+                  <label style={{ marginBottom: 8, fontWeight: 600 }}>{t('permissions')}</label>
+                  <div style={{ display: 'grid', gap: 10, marginTop: 8 }}>
+                    {[
+                      { key: 'projects', label: t('manageProjects') },
+                      { key: 'inventory', label: t('manageInventory') },
+                      { key: 'people', label: t('managePeople') },
+                      { key: 'documents', label: t('manageDocuments') },
+                      { key: 'marketplace', label: t('manageMarketplace') },
+                    ].map((perm) => (
+                      <label key={perm.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 'normal', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={newRolePermissions.includes(perm.key)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setNewRolePermissions((prev) => [...prev, perm.key]);
+                            } else {
+                              setNewRolePermissions((prev) => prev.filter((k) => k !== perm.key));
+                            }
+                          }}
+                          style={{ width: 'auto', marginTop: 0 }}
+                        />
+                        <span>{perm.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="modal-actions" style={{ marginTop: 24 }}>
+                <button type="button" className="secondary" onClick={() => setShowCreateRole(false)}>
+                  {t('cancel')}
+                </button>
+                <button className="primary" type="submit" disabled={!newRoleName.trim()}>
+                  <Plus size={16} /> {t('saveRole')}
+                </button>
+              </div>
             </form>
           </div>
         )}

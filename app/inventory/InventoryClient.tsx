@@ -206,7 +206,7 @@ export default function InventoryClient({ user, membership, items: initialItems,
             <span>Inventory</span>
             {stats.lowStockCount && <b>{stats.lowStockCount}</b>}
           </a>
-          <a href="#" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <a href="/documents" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
               <polyline points="14 2 14 8 20 8" />
@@ -216,7 +216,7 @@ export default function InventoryClient({ user, membership, items: initialItems,
         </nav>
         <div className="nav-label market-label">Connect</div>
         <nav>
-          <a href="#" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <a href="/marketplace" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="9" cy="21" r="1" />
               <circle cx="20" cy="21" r="1" />
@@ -391,11 +391,11 @@ export default function InventoryClient({ user, membership, items: initialItems,
                       <span>{item.category ?? '—'}</span>
                       <span>{item.warehouse ?? '—'}</span>
                       <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flex: 1 }}>
-                        <strong>{item.currentStock.toLocaleString()}</strong>
+                        <strong suppressHydrationWarning>{item.currentStock.toLocaleString()}</strong>
                         <small style={{ color: '#9299a7' }}>{item.unit}</small>
                       </div>
                       <div style={{ textAlign: 'right', flex: 1 }}>
-                        <small style={{ color: '#9299a7' }}>{item.minimumStock.toLocaleString()} {item.unit}</small>
+                        <small style={{ color: '#9299a7' }} suppressHydrationWarning>{item.minimumStock.toLocaleString()} {item.unit}</small>
                       </div>
                       <span className="status-badge" style={{ background: status.bg, color: status.color }}>
                         {status.label}

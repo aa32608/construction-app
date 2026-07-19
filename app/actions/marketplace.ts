@@ -217,7 +217,11 @@ export async function createRFQAction(
       createdByName: '',
       createdAt: newRFQ.created_at,
       updatedAt: newRFQ.updated_at,
-      items,
+      items: items.map((item) => ({
+        ...item,
+        id: '',
+        rfqId: newRFQ.id,
+      })),
       quotesCount: 0,
     },
   };
