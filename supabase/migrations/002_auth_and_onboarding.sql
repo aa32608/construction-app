@@ -62,6 +62,13 @@ begin
     (v_company.id, v_project_id_2, v_user, 'Approve revised floor plans',       'todo', 'urgent', current_date + 2, v_user),
     (v_company.id, v_project_id_2, v_user, 'Order insulation materials',        'done', 'low',    current_date - 1, v_user);
 
+  -- Seed starter inventory items for the workspace.
+  insert into public.inventory_items (company_id, name, sku, category, warehouse, unit, current_stock, minimum_stock)
+  values
+    (v_company.id, 'Portland Cement 50kg', 'CEM-PORT-50', 'Cement', 'Main Warehouse', 'pcs', 120, 15),
+    (v_company.id, 'Reinforced Steel Rebars 12mm', 'STL-REBAR-12', 'Steel', 'Central Storage', 'kg', 850, 100),
+    (v_company.id, 'Structural Timber Beams', 'TMB-BEAM-04', 'Timber', 'Site Shed B', 'm', 45, 10);
+
   return v_company;
 end;
 $$;
