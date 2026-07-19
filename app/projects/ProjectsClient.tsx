@@ -130,7 +130,7 @@ export default function ProjectsClient({ user, membership, projects: initialProj
             <span>Projects</span>
             <b>{stats.activeProjects}</b>
           </a>
-          <a href="#" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <a href="/people" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
               <circle cx="9" cy="7" r="4" />
@@ -139,7 +139,7 @@ export default function ProjectsClient({ user, membership, projects: initialProj
             </svg>
             <span>People</span>
           </a>
-          <a href="#" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <a href="/inventory" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
               <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
@@ -148,7 +148,7 @@ export default function ProjectsClient({ user, membership, projects: initialProj
             <span>Inventory</span>
             {stats.lowStock && <b>{stats.lowStock}</b>}
           </a>
-          <a href="#" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <a href="/documents" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
               <polyline points="14 2 14 8 20 8" />
@@ -161,7 +161,7 @@ export default function ProjectsClient({ user, membership, projects: initialProj
         </nav>
         <div className="nav-label market-label">Connect</div>
         <nav>
-          <a href="#" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <a href="/marketplace" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="9" cy="21" r="1" />
               <circle cx="20" cy="21" r="1" />

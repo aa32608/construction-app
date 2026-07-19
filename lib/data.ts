@@ -1637,7 +1637,11 @@ export async function createRFQ(
       createdByName: '',
       createdAt: newRFQ.created_at,
       updatedAt: newRFQ.updated_at,
-      items,
+      items: items.map((item) => ({
+        ...item,
+        id: '',
+        rfqId: newRFQ.id,
+      })),
       quotesCount: 0,
     },
   };
@@ -1696,7 +1700,7 @@ export async function getQuotesForRFQ(
       leadTimeDays: Number(qi.lead_time_days) || 0,
       notes: qi.notes,
     })),
-  });
+  }));
 }
 
 /**
