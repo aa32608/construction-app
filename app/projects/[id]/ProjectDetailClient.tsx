@@ -24,6 +24,7 @@ import {
   X,
   Loader2,
   Bell,
+  Download,
 } from 'lucide-react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
@@ -586,6 +587,36 @@ export default function ProjectDetailClient({ user, membership, project: initial
     setShowAddNoteModal(false);
   }
 
+  function downloadProjectReport() {
+    const reportContent = `PROJECT OPERATIONS REPORT: ${project.name.toUpperCase()}
+===================================================
+Client: ${project.clientName || 'Internal'}
+Status: ${project.status.toUpperCase()} (${project.progress}% Complete)
+Budget: €${project.budget.toLocaleString()}
+Due Date: ${project.dueDate ? project.dueDate.split('T')[0] : 'Not specified'}
+Created At: ${project.createdAt.split('T')[0]}
+
+TEAM MEMBERS (${project.members.length}):
+${project.members.map((m) => `- ${m.fullName} (${m.role})`).join('\n')}
+
+TASKS SUMMARY (${project.stats.completedTasks}/${project.stats.totalTasks} Done):
+${project.tasks.map((t) => `[${t.status.toUpperCase()}] ${t.title} ${t.assignee ? `(Assignee: ${t.assignee.fullName})` : ''}`).join('\n')}
+
+ALLOCATED MATERIALS ON SITE (${assignedMaterials.length}):
+${assignedMaterials.map((m) => `- ${m.name}: ${m.quantity} ${m.unit}`).join('\n')}
+===================================================
+Report generated on ${new Date().toLocaleDateString()} via ConstructOS Operations System`;
+
+    const blob = new Blob([reportContent], { type: 'text/plain;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `${project.name.replace(/\s+/g, '_')}_Report.txt`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
   const filteredTasks = project.tasks.filter((t) =>
     (t.title + ' ' + (t.description ?? '')).toLowerCase().includes(taskQuery.toLowerCase())
   );
@@ -729,6 +760,9 @@ export default function ProjectDetailClient({ user, membership, project: initial
                 <option value="mk">MK</option>
               </select>
             </div>
+            <button className="secondary" onClick={downloadProjectReport} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Download size={16} /> Export Report
+            </button>
             {canManage && (
               <>
                 <button className="secondary" onClick={() => setShowProjectSettings(true)} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
