@@ -49,6 +49,20 @@ export type DashboardData = {
   stats: DashboardStats;
 };
 
+export type ProjectInventoryAssignment = {
+  id: string;
+  projectId: string;
+  inventoryItemId: string;
+  itemName: string;
+  sku: string | null;
+  category: string | null;
+  quantity: number;
+  unit: string;
+  currentStock: number;
+  warehouse: string | null;
+  createdAt: string;
+};
+
 export type ProjectDetail = {
   id: string;
   name: string;
@@ -64,6 +78,7 @@ export type ProjectDetail = {
   updatedAt: string;
   members: ProjectMember[];
   tasks: ProjectTask[];
+  assignedMaterials: ProjectInventoryAssignment[];
   stats: ProjectStats;
 };
 
@@ -244,6 +259,49 @@ export async function getDashboardData(
   return { user: dashUser, membership, projects, tasks, stats };
 }
 
+export async function getProjectInventoryAssignments(
+  supabase: SupabaseClient,
+  projectId: string,
+): Promise<ProjectInventoryAssignment[]> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { data: membership } = await supabase
+    .from('company_members')
+    .select('company_id')
+    .eq('user_id', user.id)
+    .maybeSingle();
+
+  if (!membership) return [];
+
+  const { data } = await supabase
+    .from('project_inventory_assignments')
+    .select(
+      `id, project_id, inventory_item_id, quantity, created_at,
+       inventory_item:inventory_items!project_inventory_assignments_inventory_item_id_fkey(name, sku, category, unit, current_stock, warehouse)`,
+    )
+    .eq('project_id', projectId)
+    .eq('company_id', membership.company_id);
+
+  if (!data) return [];
+
+  return data.map((row: any) => ({
+    id: row.id,
+    projectId: row.project_id,
+    inventoryItemId: row.inventory_item_id,
+    itemName: row.inventory_item?.name ?? 'Unknown item',
+    sku: row.inventory_item?.sku ?? null,
+    category: row.inventory_item?.category ?? null,
+    quantity: Number(row.quantity) || 0,
+    unit: row.inventory_item?.unit ?? 'pcs',
+    currentStock: Number(row.inventory_item?.current_stock) || 0,
+    warehouse: row.inventory_item?.warehouse ?? null,
+    createdAt: row.created_at,
+  }));
+}
+
 /**
  * Fetches full project detail including members, tasks, and computed stats.
  */
@@ -292,6 +350,9 @@ export async function getProjectDetail(
     .eq('project_id', projectId)
     .order('created_at', { ascending: false });
 
+  // Fetch assigned materials
+  const assignedMaterials = await getProjectInventoryAssignments(supabase, projectId);
+
   // Compute stats
   const taskRows = tasks ?? [];
   const totalTasks = taskRows.length;
@@ -337,6 +398,7 @@ export async function getProjectDetail(
         : null,
       createdAt: t.created_at,
     })),
+    assignedMaterials,
     stats: {
       totalTasks,
       completedTasks,

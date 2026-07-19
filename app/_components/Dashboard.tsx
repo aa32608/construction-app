@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import WorkerDashboard from './WorkerDashboard';
 import {
   ArrowUpRight,
   Bell,
@@ -27,6 +28,7 @@ import {
   Trash2,
   Edit,
   FolderOpen,
+  HardHat,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { slugify } from '@/lib/format';
@@ -124,6 +126,24 @@ export default function Dashboard({
   const [dark, setDark] = useState(false);
   const [mobile, setMobile] = useState(false);
   const [query, setQuery] = useState('');
+
+  // Role View switching (Manager View vs Field Worker View)
+  const isEmployeeRole = membership?.role === 'employee';
+  const [activeRole, setActiveRole] = useState<'manager' | 'worker'>('manager');
+
+  useEffect(() => {
+    const savedRole = localStorage.getItem('constructos_view_role') as 'manager' | 'worker' | null;
+    if (savedRole) {
+      setActiveRole(savedRole);
+    } else if (isEmployeeRole) {
+      setActiveRole('worker');
+    }
+  }, [isEmployeeRole]);
+
+  function handleSwitchRole(role: 'manager' | 'worker') {
+    setActiveRole(role);
+    localStorage.setItem('constructos_view_role', role);
+  }
 
   const [projectItems, setProjectItems] = useState<ProjectView[]>(projects);
   const [taskItems, setTaskItems] = useState<TaskView[]>(tasks);
@@ -291,6 +311,22 @@ export default function Dashboard({
     router.refresh();
   }
 
+  if (activeRole === 'worker') {
+    return (
+      <WorkerDashboard
+        user={user}
+        membership={membership}
+        projects={projectItems}
+        tasks={taskItems}
+        stats={stats}
+        greeting={greeting}
+        todayLabel={todayLabel}
+        onSwitchRole={handleSwitchRole}
+        currentRole={activeRole}
+      />
+    );
+  }
+
   return (
     <div className={dark ? 'app dark' : 'app'}>
       <aside className={mobile ? 'sidebar open' : 'sidebar'}>
@@ -409,6 +445,14 @@ export default function Dashboard({
             </div>
             <button className="icon-btn" onClick={() => setDark(!dark)} title="Toggle theme">
               {dark ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
+            <button
+              className="secondary"
+              onClick={() => handleSwitchRole('worker')}
+              style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px' }}
+              title="Switch to Field Worker View"
+            >
+              <HardHat size={15} style={{ color: '#f59e0b' }} /> Worker View
             </button>
             <button
               className="icon-btn notification"

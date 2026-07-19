@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import { assignInventoryToProjectAction, removeInventoryFromProjectAction } from '@/app/actions/inventory';
 import { formatBudget, formatDue, getInitials } from '@/lib/format';
 import { useLanguage, type Language } from '@/lib/translations';
 import type { ProjectDetail, ProjectTask, ProjectMember, DashboardUser, Membership } from '@/lib/data';
@@ -100,7 +101,7 @@ export default function ProjectDetailClient({ user, membership, project: initial
   const [selectedMemberId, setSelectedMemberId] = useState('');
 
   // Assignment of Inventory Materials to Projects
-  const [allInventoryItems, setAllInventoryItems] = useState<{ id: string; name: string; unit: string }[]>([]);
+  const [allInventoryItems, setAllInventoryItems] = useState<{ id: string; name: string; unit: string; currentStock: number }[]>([]);
   const [showAssignMaterial, setShowAssignMaterial] = useState(false);
   const [selectedMaterialId, setSelectedMaterialId] = useState('');
   const [assignedQty, setAssignedQty] = useState(1);
@@ -155,10 +156,15 @@ export default function ProjectDetailClient({ user, membership, project: initial
       // Load inventory items
       const { data: invData } = await supabase
         .from('inventory_items')
-        .select('id, name, unit')
+        .select('id, name, unit, current_stock')
         .eq('company_id', membership?.companyId || '');
       if (invData) {
-        setAllInventoryItems(invData);
+        setAllInventoryItems(invData.map((i: any) => ({
+          id: i.id,
+          name: i.name,
+          unit: i.unit ?? 'pcs',
+          currentStock: Number(i.current_stock) || 0,
+        })));
       }
 
       // Load project documents
@@ -178,10 +184,21 @@ export default function ProjectDetailClient({ user, membership, project: initial
     if (membership?.companyId) {
       loadData();
       
-      // Load assigned materials from localStorage
-      const saved = localStorage.getItem(`assigned_materials_${project.id}`);
-      if (saved) {
-        setAssignedMaterials(JSON.parse(saved));
+      // Load assigned materials from project prop or fallback
+      if (initialProject.assignedMaterials && initialProject.assignedMaterials.length > 0) {
+        setAssignedMaterials(
+          initialProject.assignedMaterials.map((m) => ({
+            id: m.inventoryItemId,
+            name: m.itemName,
+            quantity: m.quantity,
+            unit: m.unit,
+          }))
+        );
+      } else {
+        const saved = localStorage.getItem(`assigned_materials_${project.id}`);
+        if (saved) {
+          setAssignedMaterials(JSON.parse(saved));
+        }
       }
 
       // Load custom activity notes from localStorage
@@ -241,11 +258,27 @@ export default function ProjectDetailClient({ user, membership, project: initial
     router.refresh();
   }
 
-  // Material assignment
-  function handleAssignMaterial() {
-    if (!selectedMaterialId) return;
+  // Material assignment with stock deduction and validation
+  async function handleAssignMaterial() {
+    if (!selectedMaterialId || assignedQty <= 0) return;
     const material = allInventoryItems.find((m) => m.id === selectedMaterialId);
     if (!material) return;
+
+    if (assignedQty > material.currentStock) {
+      alert(
+        `Cannot assign ${assignedQty} ${material.unit} of "${material.name}".\n\nOnly ${material.currentStock} ${material.unit} currently available in inventory stock!`
+      );
+      return;
+    }
+
+    setBusy(true);
+    const res = await assignInventoryToProjectAction(project.id, selectedMaterialId, assignedQty);
+    setBusy(false);
+
+    if (!res.success) {
+      alert(res.error || 'Failed to assign inventory item.');
+      return;
+    }
 
     const existingIdx = assignedMaterials.findIndex((m) => m.id === selectedMaterialId);
     let updated;
@@ -259,15 +292,49 @@ export default function ProjectDetailClient({ user, membership, project: initial
     }
     setAssignedMaterials(updated);
     localStorage.setItem(`assigned_materials_${project.id}`, JSON.stringify(updated));
+
+    // Update local inventory stock view
+    setAllInventoryItems((prev) =>
+      prev.map((i) =>
+        i.id === selectedMaterialId ? { ...i, currentStock: Math.max(0, i.currentStock - assignedQty) } : i
+      )
+    );
+
     setShowAssignMaterial(false);
     setSelectedMaterialId('');
     setAssignedQty(1);
+    router.refresh();
   }
 
-  function handleUnassignMaterial(materialId: string) {
+  async function handleUnassignMaterial(materialId: string) {
+    const target = assignedMaterials.find((m) => m.id === materialId);
+    if (!target) return;
+
+    if (!confirm(`Remove "${target.name}" from project? This will restore ${target.quantity} ${target.unit} back to inventory stock.`)) {
+      return;
+    }
+
+    setBusy(true);
+    const res = await removeInventoryFromProjectAction(project.id, materialId);
+    setBusy(false);
+
+    if (!res.success) {
+      alert(res.error || 'Failed to unassign inventory item.');
+      return;
+    }
+
     const updated = assignedMaterials.filter((m) => m.id !== materialId);
     setAssignedMaterials(updated);
     localStorage.setItem(`assigned_materials_${project.id}`, JSON.stringify(updated));
+
+    // Restore stock in local state
+    setAllInventoryItems((prev) =>
+      prev.map((i) =>
+        i.id === materialId ? { ...i, currentStock: i.currentStock + target.quantity } : i
+      )
+    );
+
+    router.refresh();
   }
 
   // Document upload
@@ -1544,7 +1611,7 @@ export default function ProjectDetailClient({ user, membership, project: initial
                   <p className="eyebrow">{t('inventory')}</p>
                   <h2>Allocate Material to Project</h2>
                 </div>
-                <button type="button" className="modal-close" onClick={() => setShowAssignMaterial(false)}>
+                <button type="button" className="modal-close" onClick={() => setShowAssignMaterial(false)} disabled={busy}>
                   <X size={18} />
                 </button>
               </div>
@@ -1553,7 +1620,13 @@ export default function ProjectDetailClient({ user, membership, project: initial
                   Select material
                   <select
                     value={selectedMaterialId}
-                    onChange={(e) => setSelectedMaterialId(e.target.value)}
+                    onChange={(e) => {
+                      setSelectedMaterialId(e.target.value);
+                      const selected = allInventoryItems.find((m) => m.id === e.target.value);
+                      if (selected && selected.currentStock > 0) {
+                        setAssignedQty(1);
+                      }
+                    }}
                     style={{
                       display: 'block',
                       width: '100%',
@@ -1568,12 +1641,33 @@ export default function ProjectDetailClient({ user, membership, project: initial
                   >
                     <option value="">Choose a material...</option>
                     {allInventoryItems.map((item) => (
-                      <option key={item.id} value={item.id}>{item.name} ({item.unit})</option>
+                      <option key={item.id} value={item.id} disabled={item.currentStock <= 0}>
+                        {item.name} ({item.unit}) — Available in stock: {item.currentStock} {item.unit} {item.currentStock <= 0 ? '(Out of stock)' : ''}
+                      </option>
                     ))}
                   </select>
                 </label>
+
+                {selectedMaterialId && (() => {
+                  const selectedMat = allInventoryItems.find((m) => m.id === selectedMaterialId);
+                  if (!selectedMat) return null;
+                  const isOver = assignedQty > selectedMat.currentStock;
+                  return (
+                    <div style={{ padding: '10px 12px', background: isOver ? '#fff1f0' : '#f0fdf4', borderRadius: 6, border: `1px solid ${isOver ? '#fca5a5' : '#bbf7d0'}`, fontSize: 12 }}>
+                      <span style={{ fontWeight: 600, color: isOver ? '#dc2626' : '#166534' }}>
+                        Possessed stock: {selectedMat.currentStock} {selectedMat.unit}
+                      </span>
+                      {isOver && (
+                        <p style={{ margin: '4px 0 0', color: '#b91c1c' }}>
+                          ⚠️ Error: You can only assign the quantity that you possess ({selectedMat.currentStock} {selectedMat.unit}).
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 <label>
-                  Quantity
+                  Quantity to assign
                   <input
                     type="number"
                     min="1"
@@ -1583,11 +1677,23 @@ export default function ProjectDetailClient({ user, membership, project: initial
                 </label>
               </div>
               <div className="modal-actions" style={{ marginTop: 24 }}>
-                <button type="button" className="secondary" onClick={() => setShowAssignMaterial(false)}>
+                <button type="button" className="secondary" onClick={() => setShowAssignMaterial(false)} disabled={busy}>
                   Cancel
                 </button>
-                <button className="primary" onClick={handleAssignMaterial} disabled={!selectedMaterialId}>
-                  <Plus size={16} /> Allocate resource
+                <button
+                  className="primary"
+                  onClick={handleAssignMaterial}
+                  disabled={
+                    busy ||
+                    !selectedMaterialId ||
+                    assignedQty <= 0 ||
+                    (() => {
+                      const mat = allInventoryItems.find((m) => m.id === selectedMaterialId);
+                      return mat ? assignedQty > mat.currentStock : false;
+                    })()
+                  }
+                >
+                  {busy ? <Loader2 size={16} className="spin" /> : <Plus size={16} />} Allocate resource
                 </button>
               </div>
             </div>

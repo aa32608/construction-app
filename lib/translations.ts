@@ -109,6 +109,11 @@ export const TRANSLATIONS = {
     project: 'Project',
     task: 'Task',
     document: 'Document',
+    workerPortal: 'Worker Portal',
+    siteDashboard: 'My Site Dashboard',
+    siteSupplies: 'Site Supplies',
+    postShiftLog: 'Post Shift Log',
+    fieldWorker: 'Field Worker',
   },
   sq: {
     overview: 'Përmbledhje',
@@ -218,6 +223,11 @@ export const TRANSLATIONS = {
     project: 'Projekt',
     task: 'Detyrë',
     document: 'Dokument',
+    workerPortal: 'Portali i Punëtorit',
+    siteDashboard: 'Paneli i Punës në Terren',
+    siteSupplies: 'Furnizimet në Terren',
+    postShiftLog: 'Dërgo Raportin e Ndërrimit',
+    fieldWorker: 'Punëtor në Terren',
   },
   mk: {
     overview: 'Преглед',
@@ -327,6 +337,11 @@ export const TRANSLATIONS = {
     project: 'Проект',
     task: 'Задача',
     document: 'Документ',
+    workerPortal: 'Работнички Портал',
+    siteDashboard: 'Мој Теренски Семет',
+    siteSupplies: 'Залихи на Терен',
+    postShiftLog: 'Испрати Извештај за Смена',
+    fieldWorker: 'Теренски Работник',
   },
 } as const;
 
