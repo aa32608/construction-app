@@ -65,6 +65,27 @@ user its owner, and seeds starter projects and tasks — so the dashboard is
 populated immediately. Every subsequent read is scoped to that company through
 row-level security.
 
+## GitHub Pages preview
+
+The repository root contains a static, responsive ConstructOS dashboard preview
+in `index.html`. To publish it without GitHub Actions, open **Settings → Pages**
+in GitHub and choose:
+
+- **Source:** Deploy from a branch
+- **Branch:** `main`
+- **Folder:** `/ (root)`
+
+GitHub will publish it at:
+
+`https://aa32608.github.io/construction-app/`
+
+The full Next.js application remains the production app in the repository. It
+requires a server runtime and Supabase environment variables, so it cannot be
+served directly by GitHub Pages. Deploy the full app to a Next.js host such as
+Vercel, or run it with `npm run start`, and configure
+`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and
+`NEXT_PUBLIC_SITE_URL` there.
+
 ## Architecture notes
 
 - **Auth state** lives in cookies managed by `@supabase/ssr`. The middleware
