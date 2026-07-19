@@ -72,6 +72,7 @@ export default function ProjectDetailClient({ user, membership, project: initial
   const [taskDescription, setTaskDescription] = useState('');
   const [busy, setBusy] = useState(false);
   const [taskQuery, setTaskQuery] = useState('');
+  const [taskViewMode, setTaskViewMode] = useState<'list' | 'kanban'>('list');
 
   // Translations
   const [lang, setLang] = useState<Language>('en');
@@ -446,16 +447,29 @@ export default function ProjectDetailClient({ user, membership, project: initial
 
   async function toggleTask(taskId: string, currentStatus: string) {
     const next = currentStatus === 'done' ? 'todo' : 'done';
-    setProject((prev) => ({
-      ...prev,
-      tasks: prev.tasks.map((t) => (t.id === taskId ? { ...t, status: next } : t)),
-      stats: {
-        ...prev.stats,
-        completedTasks: next === 'done' ? prev.stats.completedTasks + 1 : prev.stats.completedTasks - 1,
-        todoTasks: next === 'todo' ? prev.stats.todoTasks + 1 : prev.stats.todoTasks - 1,
-      },
-    }));
-    const { error } = await createClient().from('tasks').update({ status: next }).eq('id', taskId);
+    updateTaskStatus(taskId, next);
+  }
+
+  async function updateTaskStatus(taskId: string, newStatus: string) {
+    setProject((prev) => {
+      const target = prev.tasks.find((t) => t.id === taskId);
+      if (!target) return prev;
+      const oldStatus = target.status;
+      if (oldStatus === newStatus) return prev;
+
+      return {
+        ...prev,
+        tasks: prev.tasks.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t)),
+        stats: {
+          ...prev.stats,
+          completedTasks: newStatus === 'done' ? prev.stats.completedTasks + 1 : oldStatus === 'done' ? prev.stats.completedTasks - 1 : prev.stats.completedTasks,
+          inProgressTasks: newStatus === 'in_progress' ? prev.stats.inProgressTasks + 1 : oldStatus === 'in_progress' ? prev.stats.inProgressTasks - 1 : prev.stats.inProgressTasks,
+          todoTasks: newStatus === 'todo' ? prev.stats.todoTasks + 1 : oldStatus === 'todo' ? prev.stats.todoTasks - 1 : prev.stats.todoTasks,
+        },
+      };
+    });
+
+    const { error } = await createClient().from('tasks').update({ status: newStatus }).eq('id', taskId);
     if (error) console.error(error);
   }
 
@@ -1050,15 +1064,148 @@ Report generated on ${new Date().toLocaleDateString()} via ConstructOS Operation
                     <p>{project.stats.todoTasks} to do, {project.stats.inProgressTasks} in progress, {project.stats.completedTasks} done</p>
                   </div>
                 </div>
-                <div className="search" style={{ marginBottom: 16 }}>
-                  <Search size={17} />
-                  <input
-                    value={taskQuery}
-                    onChange={(e) => setTaskQuery(e.target.value)}
-                    placeholder="Search tasks..."
-                  />
+                <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center' }}>
+                  <div className="search" style={{ flex: 1 }}>
+                    <Search size={17} />
+                    <input
+                      value={taskQuery}
+                      onChange={(e) => setTaskQuery(e.target.value)}
+                      placeholder="Search tasks..."
+                    />
+                  </div>
+                  <div style={{ display: 'flex', background: '#f0f2f5', padding: 3, borderRadius: 6, gap: 2 }}>
+                    <button
+                      type="button"
+                      onClick={() => setTaskViewMode('list')}
+                      style={{
+                        padding: '6px 12px',
+                        border: 0,
+                        borderRadius: 4,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        background: taskViewMode === 'list' ? '#fff' : 'none',
+                        color: taskViewMode === 'list' ? '#1e2433' : '#68707d',
+                        cursor: 'pointer',
+                        boxShadow: taskViewMode === 'list' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                      }}
+                    >
+                      List View
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTaskViewMode('kanban')}
+                      style={{
+                        padding: '6px 12px',
+                        border: 0,
+                        borderRadius: 4,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        background: taskViewMode === 'kanban' ? '#fff' : 'none',
+                        color: taskViewMode === 'kanban' ? '#1e2433' : '#68707d',
+                        cursor: 'pointer',
+                        boxShadow: taskViewMode === 'kanban' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                      }}
+                    >
+                      Kanban Board
+                    </button>
+                  </div>
                 </div>
-                {filteredTasks.length === 0 ? (
+
+                {taskViewMode === 'kanban' ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, marginTop: 16 }}>
+                    {[
+                      { key: 'todo', title: 'To Do', color: '#68707d' },
+                      { key: 'in_progress', title: 'In Progress', color: '#5267dc' },
+                      { key: 'done', title: 'Completed', color: '#43a47d' },
+                    ].map((col) => {
+                      const colTasks = filteredTasks.filter((t) => t.status === col.key);
+                      return (
+                        <div key={col.key} style={{ background: '#f8f9fe', border: '1px solid #edf0f4', borderRadius: 8, padding: 14, display: 'flex', flexDirection: 'column' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, borderBottom: '1px solid #edf0f4', paddingBottom: 8 }}>
+                            <strong style={{ fontSize: 13, color: col.color, display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ width: 8, height: 8, borderRadius: '50%', background: col.color }} />
+                              {col.title}
+                            </strong>
+                            <span style={{ fontSize: 11, fontWeight: 700, background: '#fff', padding: '2px 8px', borderRadius: 10, color: col.color, border: '1px solid #edf0f4' }}>
+                              {colTasks.length}
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'grid', gap: 10, flex: 1, alignContent: 'start' }}>
+                            {colTasks.length === 0 ? (
+                              <div style={{ textAlign: 'center', padding: '20px 0', color: '#a0a6b0', fontSize: 12 }}>
+                                No tasks in {col.title}
+                              </div>
+                            ) : (
+                              colTasks.map((t) => {
+                                const priorityCfg = PRIORITY_CONFIG[t.priority] || PRIORITY_CONFIG.medium;
+                                return (
+                                  <div
+                                    key={t.id}
+                                    style={{
+                                      background: '#fff',
+                                      border: '1px solid #edf0f4',
+                                      borderRadius: 6,
+                                      padding: 12,
+                                      boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                                      display: 'grid',
+                                      gap: 8,
+                                    }}
+                                  >
+                                    <strong style={{ fontSize: 13, color: '#1e2433' }}>{t.title}</strong>
+                                    {t.description && <p style={{ margin: 0, fontSize: 11, color: '#68707d', lineHeight: 1.4 }}>{t.description}</p>}
+
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                                      <span style={{ fontSize: 10, fontWeight: 600, color: priorityCfg.color, background: priorityCfg.color + '20', padding: '2px 6px', borderRadius: 4 }}>
+                                        {priorityCfg.label}
+                                      </span>
+                                      {t.assignee && (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#68707d' }}>
+                                          <div className="avatar" style={{ width: 20, height: 20, fontSize: 9 }}>{getInitials(t.assignee.fullName)}</div>
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    {/* Action buttons to move between columns */}
+                                    <div style={{ display: 'flex', gap: 4, marginTop: 6, paddingTop: 6, borderTop: '1px dashed #edf0f4' }}>
+                                      {col.key !== 'todo' && (
+                                        <button
+                                          type="button"
+                                          onClick={() => updateTaskStatus(t.id, 'todo')}
+                                          style={{ flex: 1, padding: '4px', fontSize: 10, border: '1px solid #e0e3e9', background: '#fff', borderRadius: 4, cursor: 'pointer' }}
+                                        >
+                                          ← To Do
+                                        </button>
+                                      )}
+                                      {col.key !== 'in_progress' && (
+                                        <button
+                                          type="button"
+                                          onClick={() => updateTaskStatus(t.id, 'in_progress')}
+                                          style={{ flex: 1, padding: '4px', fontSize: 10, border: '1px solid #dce3ff', background: '#eef1ff', color: '#5267dc', fontWeight: 600, borderRadius: 4, cursor: 'pointer' }}
+                                        >
+                                          Progress
+                                        </button>
+                                      )}
+                                      {col.key !== 'done' && (
+                                        <button
+                                          type="button"
+                                          onClick={() => updateTaskStatus(t.id, 'done')}
+                                          style={{ flex: 1, padding: '4px', fontSize: 10, border: '1px solid #bbf7d0', background: '#eaf7f0', color: '#166534', fontWeight: 600, borderRadius: 4, cursor: 'pointer' }}
+                                        >
+                                          ✓ Done
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : filteredTasks.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '40px 20px' }}>
                     <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: '#c4c9d3', marginBottom: 12 }}>
                       <path d="M9 11l3 3L22 4" />

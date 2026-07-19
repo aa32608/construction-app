@@ -92,6 +92,79 @@ export default function WorkerDashboard({
   const [newNoteText, setNewNoteText] = useState('');
   const [showNoteModal, setShowNoteModal] = useState(false);
 
+  // Shift Check-in & Timer state
+  const [isClockedIn, setIsClockedIn] = useState(false);
+  const [shiftStart, setShiftStart] = useState<string | null>(null);
+  const [shiftSeconds, setShiftSeconds] = useState(0);
+
+  useEffect(() => {
+    const savedShift = localStorage.getItem('worker_shift_state');
+    if (savedShift) {
+      try {
+        const parsed = JSON.parse(savedShift);
+        if (parsed.isClockedIn && parsed.shiftStart) {
+          setIsClockedIn(true);
+          setShiftStart(parsed.shiftStart);
+          const startMs = new Date(parsed.shiftStart).getTime();
+          setShiftSeconds(Math.floor((Date.now() - startMs) / 1000));
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+    if (isClockedIn && shiftStart) {
+      interval = setInterval(() => {
+        const startMs = new Date(shiftStart).getTime();
+        setShiftSeconds(Math.floor((Date.now() - startMs) / 1000));
+      }, 1000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isClockedIn, shiftStart]);
+
+  function formatTimer(sec: number) {
+    const hrs = Math.floor(sec / 3600);
+    const mins = Math.floor((sec % 3600) / 60);
+    const secs = sec % 60;
+    return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  }
+
+  function handleClockIn() {
+    const nowIso = new Date().toISOString();
+    setIsClockedIn(true);
+    setShiftStart(nowIso);
+    setShiftSeconds(0);
+    localStorage.setItem('worker_shift_state', JSON.stringify({ isClockedIn: true, shiftStart: nowIso }));
+  }
+
+  function handleClockOut() {
+    if (!confirm('End your active work shift? A shift summary report will be logged to your daily site log.')) return;
+    const totalTime = formatTimer(shiftSeconds);
+    const autoNote: ShiftNote = {
+      id: 'note-' + Date.now(),
+      author: user.fullName,
+      initials: getInitials(user.fullName),
+      text: `⏱ Completed site shift. Total active shift duration: ${totalTime}.`,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+
+    const updated = [autoNote, ...shiftNotes];
+    setShiftNotes(updated);
+    if (membership?.companyId) {
+      localStorage.setItem(`worker_shift_notes_${membership.companyId}`, JSON.stringify(updated));
+    }
+
+    setIsClockedIn(false);
+    setShiftStart(null);
+    setShiftSeconds(0);
+    localStorage.removeItem('worker_shift_state');
+  }
+
   // Allocated site materials list loaded for worker's projects
   const [allocatedMaterials, setAllocatedMaterials] = useState<
     { id: string; name: string; quantity: number; unit: string; project: string }[]
@@ -375,9 +448,54 @@ export default function WorkerDashboard({
                 Welcome to your site operations portal for {membership?.companyName || 'ConstructOS'}. Here are your tasks, site materials, and project updates for today.
               </p>
             </div>
-            <button className="primary" onClick={() => setShowNoteModal(true)} style={{ background: '#d97706', borderColor: '#b45309', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Plus size={16} /> Post Shift Log
-            </button>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              {isClockedIn ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fff', padding: '6px 12px', borderRadius: 8, border: '1px solid #fcd34d', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#b45309', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    🟢 SHIFT ACTIVE: {formatTimer(shiftSeconds)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleClockOut}
+                    style={{
+                      background: '#ef4444',
+                      color: '#fff',
+                      border: 0,
+                      borderRadius: 6,
+                      padding: '5px 10px',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Clock Out
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleClockIn}
+                  style={{
+                    background: '#16a34a',
+                    color: '#fff',
+                    border: 0,
+                    borderRadius: 8,
+                    padding: '8px 14px',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  ⏱ Start Work Shift
+                </button>
+              )}
+              <button className="primary" onClick={() => setShowNoteModal(true)} style={{ background: '#d97706', borderColor: '#b45309', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Plus size={16} /> Post Shift Log
+              </button>
+            </div>
           </div>
 
           {/* Quick Stat Cards */}

@@ -105,6 +105,9 @@ export default function MarketplaceClient({
   // Edit Vendor & Product states
   const [editVendor, setEditVendor] = useState<Vendor | null>(null);
   const [editProduct, setEditProduct] = useState<Product | null>(null);
+  const [rateVendorModal, setRateVendorModal] = useState<Vendor | null>(null);
+  const [ratingStars, setRatingStars] = useState(5);
+  const [ratingReviewText, setRatingReviewText] = useState('');
 
   // RFQ & Quotes management states
   const [activeRFQModal, setActiveRFQModal] = useState<RFQ | null>(null);
@@ -269,6 +272,18 @@ export default function MarketplaceClient({
   async function handleDeleteVendor(vendorId: string, vendorName: string) {
     if (!confirm(`Delete vendor "${vendorName}"?`)) return;
     setVendors((prev) => prev.filter((v) => v.id !== vendorId));
+  }
+
+  function handleSaveVendorRating(e: React.FormEvent) {
+    e.preventDefault();
+    if (!rateVendorModal) return;
+    setVendors((prev) =>
+      prev.map((v) => (v.id === rateVendorModal.id ? { ...v, rating: ratingStars } : v))
+    );
+    alert(`Saved ${ratingStars}-star evaluation for supplier "${rateVendorModal.name}".`);
+    setRateVendorModal(null);
+    setRatingStars(5);
+    setRatingReviewText('');
   }
 
   async function handleAddProduct(event: React.FormEvent<HTMLFormElement>) {
@@ -861,9 +876,19 @@ Authorized by ConstructOS Procurement Management.`;
                           <button
                             type="button"
                             className="icon-btn"
+                            onClick={() => {
+                              setRateVendorModal(vendor);
+                              setRatingStars(Math.round(vendor.rating) || 5);
+                            }}
+                            title="Rate & Evaluate Supplier Performance"
+                          >
+                            <Star size={15} color="#f2b653" fill="#f2b653" />
+                          </button>
+                          <button
+                            type="button"
+                            className="icon-btn"
                             onClick={() => setEditVendor(vendor)}
                             title="Edit Vendor Details"
-                            style={{ marginLeft: 'auto' }}
                           >
                             <Edit size={15} />
                           </button>
@@ -1150,6 +1175,73 @@ Authorized by ConstructOS Procurement Management.`;
               <div className="modal-actions">
                 <button type="button" className="secondary" onClick={() => setEditVendor(null)} disabled={busy}>Cancel</button>
                 <button className="primary" type="submit" disabled={busy}>Save Changes</button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* Rate & Evaluate Vendor Modal */}
+        {rateVendorModal && (
+          <div className="modal-backdrop" onClick={() => setRateVendorModal(null)}>
+            <form className="modal" onSubmit={handleSaveVendorRating} onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <div>
+                  <p className="eyebrow">Procurement Quality Control</p>
+                  <h2>Evaluate Supplier: {rateVendorModal.name}</h2>
+                </div>
+                <button type="button" className="modal-close" onClick={() => setRateVendorModal(null)}>
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div style={{ display: 'grid', gap: 16 }}>
+                <label>
+                  Performance Rating
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button
+                        key={star}
+                        type="button"
+                        onClick={() => setRatingStars(star)}
+                        style={{
+                          background: 'none',
+                          border: 0,
+                          cursor: 'pointer',
+                          padding: 4,
+                        }}
+                      >
+                        <Star
+                          size={24}
+                          color="#f2b653"
+                          fill={star <= ratingStars ? '#f2b653' : 'none'}
+                        />
+                      </button>
+                    ))}
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#202635', marginLeft: 8 }}>
+                      {ratingStars} / 5 Stars
+                    </span>
+                  </div>
+                </label>
+
+                <label>
+                  Performance & Quality Notes
+                  <textarea
+                    placeholder="e.g. Prompt delivery, good material certificates, driver assisted with site unloading."
+                    value={ratingReviewText}
+                    onChange={(e) => setRatingReviewText(e.target.value)}
+                    rows={3}
+                    style={{ display: 'block', width: '100%', border: '1px solid #e0e3e9', borderRadius: 6, padding: 10, marginTop: 8, font: "12px 'DM Sans'" }}
+                  />
+                </label>
+              </div>
+
+              <div className="modal-actions" style={{ marginTop: 24 }}>
+                <button type="button" className="secondary" onClick={() => setRateVendorModal(null)}>
+                  Cancel
+                </button>
+                <button className="primary" type="submit">
+                  Save Evaluation
+                </button>
               </div>
             </form>
           </div>
