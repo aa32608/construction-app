@@ -1696,7 +1696,7 @@ export async function getQuotesForRFQ(
       leadTimeDays: Number(qi.lead_time_days) || 0,
       notes: qi.notes,
     })),
-  });
+  }));
 }
 
 /**
