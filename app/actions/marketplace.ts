@@ -519,21 +519,50 @@ export async function receivePOItemAction(
 
   if (updateError) return { success: false, error: updateError.message };
 
-  // If inventory item linked, increment stock
-  if (inventoryItemId) {
+  // Sync with central inventory stock
+  let targetInvId = inventoryItemId;
+  if (!targetInvId) {
+    // Try finding existing inventory item with matching name
+    const { data: matchedInv } = await supabase
+      .from('inventory_items')
+      .select('id, current_stock')
+      .eq('company_id', membership.company_id)
+      .ilike('name', poItem.product_name)
+      .maybeSingle();
+
+    if (matchedInv) {
+      targetInvId = matchedInv.id;
+      const updatedStock = Number(matchedInv.current_stock) + receivedQty;
+      await supabase
+        .from('inventory_items')
+        .update({ current_stock: updatedStock })
+        .eq('id', matchedInv.id);
+    } else {
+      // Automatically create new inventory item for received goods
+      await supabase
+        .from('inventory_items')
+        .insert({
+          company_id: membership.company_id,
+          name: poItem.product_name,
+          unit: poItem.unit || 'pcs',
+          current_stock: receivedQty,
+          minimum_stock: 10,
+        });
+    }
+  } else {
     const { data: invItem } = await supabase
       .from('inventory_items')
       .select('current_stock')
-      .eq('id', inventoryItemId)
+      .eq('id', targetInvId)
       .eq('company_id', membership.company_id)
       .single();
 
     if (invItem) {
-      const newStock = Number(invItem.current_stock) + receivedQty;
+      const updatedStock = Number(invItem.current_stock) + receivedQty;
       await supabase
         .from('inventory_items')
-        .update({ current_stock: newStock })
-        .eq('id', inventoryItemId);
+        .update({ current_stock: updatedStock })
+        .eq('id', targetInvId);
     }
   }
 
@@ -559,5 +588,21 @@ export async function receivePOItemAction(
 
   revalidatePath('/marketplace');
   revalidatePath('/inventory');
+  revalidatePath('/');
+
+  // Record audit log
+  try {
+    await supabase.from('audit_logs').insert({
+      company_id: membership.company_id,
+      actor_id: user.id,
+      action: `Received ${receivedQty} ${poItem.unit || 'units'} of "${poItem.product_name}" into central inventory`,
+      entity_type: 'purchase_order',
+      entity_id: poItem.purchase_orders.id,
+      metadata: { po_item_id: poItemId, receivedQty },
+    });
+  } catch (err) {
+    console.error('Audit log error:', err);
+  }
+
   return { success: true };
 }

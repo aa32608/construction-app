@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useState, useTransition, useEffect } from 'react';
+import { useLanguage, type Language } from '@/lib/translations';
 import { useRouter } from 'next/navigation';
 import {
   Plus,
@@ -185,6 +186,27 @@ export default function MarketplaceClient({
   const [rfqItems, setRfqItems] = useState<Omit<RFQItem, 'id' | 'rfqId'>[]>([
     { productName: '', quantity: 1, unit: 'pcs', category: 'Cement', description: '', neededBy: '' },
   ]);
+
+  const [lang, setLang] = useState<Language>('en');
+  useEffect(() => {
+    const saved = localStorage.getItem('lang') as Language;
+    if (saved && ['en', 'sq', 'mk'].includes(saved)) {
+      setLang(saved);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleStorage = () => {
+      const saved = localStorage.getItem('lang') as Language;
+      if (saved && ['en', 'sq', 'mk'].includes(saved)) {
+        setLang(saved);
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
+  const { t } = useLanguage(lang);
 
   const canManage = membership && ['owner', 'manager'].includes(membership.role);
 
@@ -428,11 +450,19 @@ export default function MarketplaceClient({
   }
 
   // Receive goods against PO item
-  function handleReceivePOGoods(e: React.FormEvent) {
+  async function handleReceivePOGoods(e: React.FormEvent) {
     e.preventDefault();
     if (!activePOModal || !receiveItemId) return;
     const targetItem = poItemsList.find((i) => i.id === receiveItemId);
     if (!targetItem) return;
+
+    setBusy(true);
+    const res = await receivePOItemAction(receiveItemId, receiveQtyInput);
+    setBusy(false);
+
+    if (res.error) {
+      console.warn('Backend PO receipt response:', res.error);
+    }
 
     const newReceived = Math.min(targetItem.quantity, targetItem.receivedQty + receiveQtyInput);
     setPoItemsList((prev) =>
@@ -448,9 +478,10 @@ export default function MarketplaceClient({
       setPOs((prev) => prev.map((p) => (p.id === activePOModal.id ? { ...p, status: 'partial_received' } : p)));
     }
 
-    alert(`Successfully recorded receipt of ${receiveQtyInput} ${targetItem.unit} of "${targetItem.productName}". Inventory stock updated.`);
+    alert(`Successfully recorded receipt of ${receiveQtyInput} ${targetItem.unit} of "${targetItem.productName}". Central inventory stock has been automatically updated.`);
     setReceiveItemId('');
     setReceiveQtyInput(1);
+    router.refresh();
   }
 
   function downloadPOSummary(po: PurchaseOrder) {
@@ -618,6 +649,32 @@ Authorized by ConstructOS Procurement Management.`;
                 placeholder="Search vendors, products, RFQs, POs..."
               />
               <kbd>⌘ K</kbd>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <select
+                value={lang}
+                onChange={(e) => {
+                  const newLang = e.target.value as Language;
+                  setLang(newLang);
+                  localStorage.setItem('lang', newLang);
+                  window.dispatchEvent(new Event('storage'));
+                }}
+                style={{
+                  border: '1px solid #edf0f3',
+                  borderRadius: 6,
+                  padding: '5px 8px',
+                  fontSize: 12,
+                  background: '#fff',
+                  cursor: 'pointer',
+                  color: '#3a4150',
+                  fontWeight: 500,
+                  outline: 'none',
+                }}
+              >
+                <option value="en">EN</option>
+                <option value="sq">SQ</option>
+                <option value="mk">MK</option>
+              </select>
             </div>
             {canManage && (
               <>

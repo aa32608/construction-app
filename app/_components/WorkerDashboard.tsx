@@ -35,6 +35,7 @@ import type {
   Membership,
   ProjectView,
   TaskView,
+  AuditLogView,
 } from '@/lib/data';
 
 type WorkerDashboardProps = {
@@ -43,6 +44,7 @@ type WorkerDashboardProps = {
   projects: ProjectView[];
   tasks: TaskView[];
   stats: DashboardStats;
+  auditLogs?: AuditLogView[];
   greeting: string;
   todayLabel: string;
   onSwitchRole: (role: 'manager' | 'worker') => void;
@@ -63,6 +65,7 @@ export default function WorkerDashboard({
   projects,
   tasks,
   stats,
+  auditLogs,
   greeting,
   todayLabel,
   onSwitchRole,

@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useState, useTransition, useEffect } from 'react';
+import { useLanguage, type Language } from '@/lib/translations';
 import {
   Plus,
   Search,
@@ -41,6 +42,27 @@ export default function InventoryClient({ user, membership, items: initialItems,
   const [showEditItem, setShowEditItem] = useState<InventoryItem | null>(null);
   const [busy, setBusy] = useState(false);
   const [isPending, startTransition] = useTransition();
+
+  const [lang, setLang] = useState<Language>('en');
+  useEffect(() => {
+    const saved = localStorage.getItem('lang') as Language;
+    if (saved && ['en', 'sq', 'mk'].includes(saved)) {
+      setLang(saved);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleStorage = () => {
+      const saved = localStorage.getItem('lang') as Language;
+      if (saved && ['en', 'sq', 'mk'].includes(saved)) {
+        setLang(saved);
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
+  const { t } = useLanguage(lang);
 
   const canManage = membership && ['owner', 'manager'].includes(membership.role);
 
@@ -300,6 +322,32 @@ export default function InventoryClient({ user, membership, items: initialItems,
                 placeholder="Search items (name, SKU)..."
               />
               <kbd>⌘ K</kbd>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <select
+                value={lang}
+                onChange={(e) => {
+                  const newLang = e.target.value as Language;
+                  setLang(newLang);
+                  localStorage.setItem('lang', newLang);
+                  window.dispatchEvent(new Event('storage'));
+                }}
+                style={{
+                  border: '1px solid #edf0f3',
+                  borderRadius: 6,
+                  padding: '5px 8px',
+                  fontSize: 12,
+                  background: '#fff',
+                  cursor: 'pointer',
+                  color: '#3a4150',
+                  fontWeight: 500,
+                  outline: 'none',
+                }}
+              >
+                <option value="en">EN</option>
+                <option value="sq">SQ</option>
+                <option value="mk">MK</option>
+              </select>
             </div>
             <div className="filter-select">
               <Filter size={17} />

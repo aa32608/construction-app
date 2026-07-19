@@ -39,6 +39,7 @@ import type {
   Membership,
   ProjectView,
   TaskView,
+  AuditLogView,
 } from '@/lib/data';
 
 type DashboardProps = {
@@ -47,6 +48,7 @@ type DashboardProps = {
   projects: ProjectView[];
   tasks: TaskView[];
   stats: DashboardStats;
+  auditLogs?: AuditLogView[];
   greeting: string;
   todayLabel: string;
 };
@@ -99,6 +101,7 @@ export default function Dashboard({
   projects,
   tasks,
   stats,
+  auditLogs,
   greeting,
   todayLabel,
 }: DashboardProps) {
@@ -319,6 +322,7 @@ export default function Dashboard({
         projects={projectItems}
         tasks={taskItems}
         stats={stats}
+        auditLogs={auditLogs}
         greeting={greeting}
         todayLabel={todayLabel}
         onSwitchRole={handleSwitchRole}
@@ -679,14 +683,26 @@ export default function Dashboard({
                       View all <ArrowUpRight size={15} />
                     </button>
                   </div>
-                  <div className="activity-row">
-                    <div className="avatar purple">{user.initials}</div>
-                    <p>
-                      <strong>{user.fullName}</strong> set up the{' '}
-                      <b>{membership.companyName}</b> workspace
-                      <small>{todayLabel}</small>
-                    </p>
-                  </div>
+                  {auditLogs && auditLogs.length > 0 ? (
+                    auditLogs.slice(0, 3).map((log) => (
+                      <div className="activity-row" key={log.id}>
+                        <div className="avatar purple">{log.actorInitials}</div>
+                        <p>
+                          <strong>{log.actorName}</strong> {log.action}
+                          <small>{log.timeAgo}</small>
+                        </p>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="activity-row">
+                      <div className="avatar purple">{user.initials}</div>
+                      <p>
+                        <strong>{user.fullName}</strong> set up the{' '}
+                        <b>{membership.companyName}</b> workspace
+                        <small>{todayLabel}</small>
+                      </p>
+                    </div>
+                  )}
                 </section>
                 <section className="tip">
                   <div className="tip-icon">✦</div>
@@ -1051,31 +1067,25 @@ export default function Dashboard({
               </div>
 
               <div style={{ overflowY: 'auto', flex: 1, display: 'grid', gap: 12, paddingRight: 4 }}>
-                <div className="activity-row" style={{ padding: '10px 0' }}>
-                  <div className="avatar purple">{user.initials}</div>
-                  <p>
-                    <strong>{user.fullName}</strong> set up the <b>{membership?.companyName ?? 'your workspace'}</b> workspace
-                    <small>{todayLabel}</small>
-                  </p>
-                </div>
-                {projectItems.map((p) => (
-                  <div className="activity-row" key={p.id} style={{ padding: '10px 0' }}>
-                    <div className="avatar blue">PR</div>
+                {auditLogs && auditLogs.length > 0 ? (
+                  auditLogs.map((log) => (
+                    <div className="activity-row" key={log.id} style={{ padding: '10px 0' }}>
+                      <div className="avatar purple">{log.actorInitials}</div>
+                      <p>
+                        <strong>{log.actorName}</strong> {log.action}
+                        <small>{log.timeAgo}</small>
+                      </p>
+                    </div>
+                  ))
+                ) : (
+                  <div className="activity-row" style={{ padding: '10px 0' }}>
+                    <div className="avatar purple">{user.initials}</div>
                     <p>
-                      <strong>{user.fullName}</strong> created / updated project <b>{p.name}</b>
-                      <small>Recent</small>
+                      <strong>{user.fullName}</strong> set up the <b>{membership?.companyName ?? 'your workspace'}</b> workspace
+                      <small>{todayLabel}</small>
                     </p>
                   </div>
-                ))}
-                {taskItems.slice(0, 3).map((t) => (
-                  <div className="activity-row" key={t.id} style={{ padding: '10px 0' }}>
-                    <div className="avatar green">TK</div>
-                    <p>
-                      <strong>Team member</strong> {t.done ? 'completed' : 'added'} task <b>{t.text}</b> ({t.project})
-                      <small>Recent</small>
-                    </p>
-                  </div>
-                ))}
+                )}
               </div>
 
               <div className="modal-actions" style={{ marginTop: 20 }}>

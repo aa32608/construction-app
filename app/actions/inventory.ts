@@ -305,6 +305,20 @@ export async function assignInventoryToProjectAction(
   revalidatePath('/inventory');
   revalidatePath('/');
 
+  // Record audit event
+  try {
+    await supabase.from('audit_logs').insert({
+      company_id: membership.company_id,
+      actor_id: user.id,
+      action: `Allocated ${quantity} units of "${item.name}" to project`,
+      entity_type: 'inventory_assignment',
+      entity_id: projectId,
+      metadata: { inventory_item_id: inventoryItemId, quantity },
+    });
+  } catch (err) {
+    console.error('Audit log error:', err);
+  }
+
   return { success: true, remainingStock: newStock };
 }
 
@@ -396,6 +410,20 @@ export async function removeInventoryFromProjectAction(
   revalidatePath(`/projects/${projectId}`);
   revalidatePath('/inventory');
   revalidatePath('/');
+
+  // Record audit event
+  try {
+    await supabase.from('audit_logs').insert({
+      company_id: membership.company_id,
+      actor_id: user.id,
+      action: `Unassigned material from project, restored ${assignedQuantity} units to inventory`,
+      entity_type: 'inventory_assignment',
+      entity_id: projectId,
+      metadata: { inventory_item_id: inventoryItemId, restoredQuantity: assignedQuantity },
+    });
+  } catch (err) {
+    console.error('Audit log error:', err);
+  }
 
   return { success: true, restoredStock };
 }

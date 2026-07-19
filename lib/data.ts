@@ -135,6 +135,59 @@ const STATUS_MAP: Record<string, { label: string; risk: boolean }> = {
 
 const ACTIVE_STATUSES = new Set(['planning', 'active', 'on_hold']);
 
+export type AuditLogView = {
+  id: string;
+  action: string;
+  entityType: string;
+  actorName: string;
+  actorInitials: string;
+  timeAgo: string;
+  createdAt: string;
+};
+
+export async function getAuditLogs(
+  supabase: SupabaseClient,
+  limit: number = 10,
+): Promise<AuditLogView[]> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { data: membership } = await supabase
+    .from('company_members')
+    .select('company_id')
+    .eq('user_id', user.id)
+    .maybeSingle();
+
+  if (!membership) return [];
+
+  const { data } = await supabase
+    .from('audit_logs')
+    .select(`
+      id, action, entity_type, created_at,
+      actor:profiles!audit_logs_actor_id_fkey(full_name)
+    `)
+    .eq('company_id', membership.company_id)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (!data) return [];
+
+  return data.map((log: any) => {
+    const actorName = log.actor?.full_name || 'System User';
+    return {
+      id: String(log.id),
+      action: log.action,
+      entityType: log.entity_type,
+      actorName,
+      actorInitials: getInitials(actorName),
+      timeAgo: formatDue(log.created_at.split('T')[0]),
+      createdAt: log.created_at,
+    };
+  });
+}
+
 /**
  * Loads everything the operations dashboard needs for the signed-in user.
  * All reads are tenant-scoped through the company membership; RLS provides
