@@ -1,0 +1,413 @@
+'use client';
+
+import { useState, useTransition } from 'react';
+import {
+  Plus,
+  Search,
+  UserCheck,
+  UserX,
+  UserCog,
+  Mail,
+  Shield,
+  Briefcase,
+  Loader2,
+} from 'lucide-react';
+import { getInitials } from '@/lib/format';
+import type { CompanyMember, DashboardUser, Membership, DashboardStats } from '@/lib/data';
+import { inviteUserAction, updateMemberRoleAction, removeMemberAction } from '@/app/actions/people';
+
+const ROLE_CONFIG: Record<string, { label: string; color: string; bg: string; icon: any }> = {
+  owner: { label: 'Owner', color: '#8b5cf6', bg: '#f5f3ff', icon: Shield },
+  manager: { label: 'Manager', color: '#3b82f6', bg: '#eff6ff', icon: Briefcase },
+  engineer: { label: 'Engineer', color: '#22c55e', bg: '#f0fdf4', icon: UserCog },
+  employee: { label: 'Employee', color: '#6b7280', bg: '#f9fafb', icon: UserCheck },
+};
+
+type PeopleClientProps = {
+  user: DashboardUser;
+  membership: Membership | null;
+  members: CompanyMember[];
+  stats: DashboardStats;
+};
+
+export default function PeopleClient({ user, membership, members: initialMembers, stats }: PeopleClientProps) {
+  const [members, setMembers] = useState<CompanyMember[]>(initialMembers);
+  const [query, setQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState<string>('all');
+  const [showInvite, setShowInvite] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState('employee');
+  const [inviteJobTitle, setInviteJobTitle] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [inviteError, setInviteError] = useState('');
+  const [inviteSuccess, setInviteSuccess] = useState('');
+  const [isPending, startTransition] = useTransition();
+
+  const canManage = membership && ['owner', 'manager'].includes(membership.role);
+  const isOwner = membership?.role === 'owner';
+
+  const filteredMembers = members.filter((m) => {
+    const matchesQuery = (m.fullName + ' ' + (m.email ?? '')).toLowerCase().includes(query.toLowerCase());
+    const matchesRole = roleFilter === 'all' || m.role === roleFilter;
+    return matchesQuery && matchesRole;
+  });
+
+  const roleOptions = [
+    { value: 'employee', label: 'Employee' },
+    { value: 'engineer', label: 'Engineer' },
+    { value: 'manager', label: 'Manager' },
+    { value: 'owner', label: 'Owner' },
+  ];
+
+  async function handleInvite(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setInviteError('');
+    setInviteSuccess('');
+
+    startTransition(async () => {
+      const result = await inviteUserAction(inviteEmail.trim(), inviteRole, inviteJobTitle.trim() || undefined);
+      setBusy(false);
+      if (result.error) {
+        setInviteError(result.error);
+        return;
+      }
+      setInviteSuccess('Invitation sent! The user will receive an email to join.');
+      setInviteEmail('');
+      setInviteJobTitle('');
+      setInviteRole('employee');
+      setTimeout(() => setShowInvite(false), 2000);
+    });
+  }
+
+  async function changeRole(memberId: string, newRole: string) {
+    if (!isOwner) return;
+    setBusy(true);
+    const result = await updateMemberRoleAction(memberId, newRole);
+    setBusy(false);
+    if (result.error) {
+      alert(result.error);
+      return;
+    }
+    setMembers((prev) =>
+      prev.map((m) => (m.userId === memberId ? { ...m, role: newRole } : m))
+    );
+  }
+
+  async function handleRemoveMember(memberId: string) {
+    if (!isOwner) return;
+    if (!confirm('Remove this member from the company? This cannot be undone.')) return;
+    setBusy(true);
+    const result = await removeMemberAction(memberId);
+    setBusy(false);
+    if (result.error) {
+      alert(result.error);
+      return;
+    }
+    setMembers((prev) => prev.filter((m) => m.userId !== memberId));
+  }
+
+  function getRoleConfig(role: string) {
+    return ROLE_CONFIG[role] ?? ROLE_CONFIG.employee;
+  }
+
+  return (
+    <div className="app">
+      <aside className="sidebar">
+        <div className="brand">
+          <div className="brand-mark">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 2L2 7l10 5 10-5-10-5z" />
+              <path d="M2 17l10 5 10-5" />
+              <path d="M2 12l10 5 10-5" />
+            </svg>
+          </div>
+          <span>construct<strong>OS</strong></span>
+        </div>
+        <div className="company">
+          <div className="company-logo">
+            {(membership?.companyName ?? user.fullName).charAt(0).toUpperCase()}
+          </div>
+          <div>
+            <strong>{membership?.companyName ?? 'Set up workspace'}</strong>
+            <small>{membership ? 'Workspace' : 'No company yet'}</small>
+          </div>
+        </div>
+        <div className="nav-label">Workspace</div>
+        <nav>
+          <a href="/" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="3" y="3" width="7" height="7" rx="1" />
+              <rect x="14" y="3" width="7" height="7" rx="1" />
+              <rect x="3" y="14" width="7" height="7" rx="1" />
+              <rect x="14" y="14" width="7" height="7" rx="1" />
+            </svg>
+            <span>Overview</span>
+          </a>
+          <a href="/projects" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+            </svg>
+            <span>Projects</span>
+            <b>{stats.activeProjects}</b>
+          </a>
+          <a href="/people" className="nav-item active" style={{ textDecoration: 'none', color: 'inherit' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+            </svg>
+            <span>People</span>
+            <b>{members.length}</b>
+          </a>
+          <a href="#" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+            </svg>
+            <span>Inventory</span>
+            {stats.lowStock && <b>{stats.lowStock}</b>}
+          </a>
+          <a href="#" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+            </svg>
+            <span>Documents</span>
+          </a>
+        </nav>
+        <div className="nav-label market-label">Connect</div>
+        <nav>
+          <a href="#" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="9" cy="21" r="1" />
+              <circle cx="20" cy="21" r="1" />
+              <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+            </svg>
+            <span>Marketplace</span>
+          </a>
+          <a href="#" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+              <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+            </svg>
+            <span>Notifications</span>
+            <b>3</b>
+          </a>
+        </nav>
+        <div className="side-bottom">
+          <a href="#" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+            <span>Settings</span>
+          </a>
+        </div>
+      </aside>
+
+      <main className="main">
+        <header>
+          <div className="crumb">
+            Workspace <span>/</span> <strong>People</strong>
+          </div>
+          <div className="header-actions">
+            <div className="search">
+              <Search size={17} />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search people..."
+              />
+              <kbd>⌘ K</kbd>
+            </div>
+            <div className="filter-select">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+              </svg>
+              <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}>
+                <option value="all">All roles</option>
+                <option value="owner">Owner</option>
+                <option value="manager">Manager</option>
+                <option value="engineer">Engineer</option>
+                <option value="employee">Employee</option>
+              </select>
+            </div>
+            {canManage && (
+              <button className="primary" onClick={() => setShowInvite(true)} disabled={busy || isPending}>
+                <Plus size={17} /> Invite member
+              </button>
+            )}
+          </div>
+        </header>
+
+        <div className="content">
+          <div className="welcome">
+            <div>
+              <p className="eyebrow">Team</p>
+              <h1>Company members</h1>
+              <p className="subhead">
+                {members.length} member{members.length === 1 ? '' : 's'} in {membership?.companyName ?? 'your workspace'}
+              </p>
+            </div>
+          </div>
+
+          {filteredMembers.length === 0 ? (
+            <div className="panel" style={{ textAlign: 'center', padding: '60px 20px' }}>
+              <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: '#c4c9d3', marginBottom: 16 }}>
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+              </svg>
+              <h2 style={{ margin: '0 0 8px', fontSize: 18, fontWeight: 600 }}>No members found</h2>
+              <p className="subhead" style={{ margin: 0 }}>
+                {query || roleFilter !== 'all'
+                  ? 'Try adjusting your search or filters.'
+                  : 'Your team is empty. Invite colleagues to start collaborating.'}
+              </p>
+              {canManage && !query && roleFilter === 'all' && (
+                <button className="primary" onClick={() => setShowInvite(true)} style={{ marginTop: 16 }} disabled={busy || isPending}>
+                  <Plus size={16} /> Invite first member
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="people-grid">
+              {filteredMembers.map((member) => {
+                const config = getRoleConfig(member.role);
+                const Icon = config.icon;
+                const isCurrentUser = member.userId === user.id;
+                return (
+                  <div key={member.userId} className="person-card">
+                    <div className="person-avatar" style={{ background: config.bg, color: config.color }}>
+                      {member.avatarUrl ? (
+                        <img src={member.avatarUrl} alt={member.fullName} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
+                      ) : (
+                        getInitials(member.fullName)
+                      )}
+                    </div>
+                    <div className="person-info">
+                      <div className="person-header">
+                        <strong>{member.fullName}</strong>
+                        {isCurrentUser && <span className="you-badge">You</span>}
+                      </div>
+                      {member.email && <div className="person-email"><Mail size={12} /> {member.email}</div>}
+                      {member.jobTitle && <div className="person-title"><Briefcase size={12} /> {member.jobTitle}</div>}
+                      <div className="person-meta">
+                        <span className="role-badge" style={{ background: config.bg, color: config.color }}>
+                          <Icon size={10} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+                          {config.label}
+                        </span>
+                        <span className="joined-date">Joined {new Date(member.joinedAt).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                    {canManage && !isCurrentUser && (
+                      <div className="person-actions">
+                        <div className="role-select-wrapper">
+                          <select
+                            value={member.role}
+                            onChange={(e) => changeRole(member.userId, e.target.value)}
+                            className="role-select"
+                            disabled={!isOwner || busy || isPending}
+                          >
+                            {roleOptions.map((r) => (
+                              <option key={r.value} value={r.value}>{r.label}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <button
+                          className="icon-btn danger"
+                          onClick={() => handleRemoveMember(member.userId)}
+                          title="Remove member"
+                          disabled={busy || isPending}
+                        >
+                          <UserX size={16} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {showInvite && (
+          <div className="modal-backdrop" onClick={() => setShowInvite(false)}>
+            <form className="modal" onSubmit={handleInvite} onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <div>
+                  <p className="eyebrow">Team</p>
+                  <h2>Invite team member</h2>
+                </div>
+                <button type="button" className="modal-close" onClick={() => setShowInvite(false)} disabled={busy || isPending}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              </div>
+              <label>
+                Email address
+                <input
+                  autoFocus
+                  type="email"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  placeholder="colleague@company.com"
+                  required
+                  disabled={busy || isPending}
+                />
+              </label>
+              <label style={{ marginTop: 16 }}>
+                Role
+                <select
+                  value={inviteRole}
+                  onChange={(e) => setInviteRole(e.target.value)}
+                  disabled={busy || isPending}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    height: 42,
+                    border: '1px solid #e0e3e9',
+                    borderRadius: 6,
+                    padding: '0 10px',
+                    marginTop: 8,
+                    font: "12px 'DM Sans'",
+                    background: '#fff',
+                  }}
+                >
+                  <option value="employee">Employee</option>
+                  <option value="engineer">Engineer</option>
+                  <option value="manager">Manager</option>
+                  <option value="owner">Owner</option>
+                </select>
+              </label>
+              <label style={{ marginTop: 16 }}>
+                Job title (optional)
+                <input
+                  value={inviteJobTitle}
+                  onChange={(e) => setInviteJobTitle(e.target.value)}
+                  placeholder="e.g. Project Manager"
+                  disabled={busy || isPending}
+                />
+              </label>
+              {inviteError && (
+                <p style={{ color: '#df7f73', fontSize: 11, margin: '10px 0 0' }}>{inviteError}</p>
+              )}
+              {inviteSuccess && (
+                <p style={{ color: '#3eae83', fontSize: 11, margin: '10px 0 0' }}>{inviteSuccess}</p>
+              )}
+              <div className="modal-actions">
+                <button type="button" className="secondary" onClick={() => setShowInvite(false)} disabled={busy || isPending}>
+                  Cancel
+                </button>
+                <button className="primary" type="submit" disabled={busy || isPending || !inviteEmail.trim()}>
+                  {(busy || isPending) ? <Loader2 size={16} className="spin" /> : <Plus size={16} />} {(busy || isPending) ? 'Sending...' : 'Send invitation'}
+                </button>
+              </div>
+              <style>{`.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+            </form>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
