@@ -21,10 +21,13 @@ import {
   DollarSign,
   User,
   MessageSquare,
+  X,
+  Loader2,
 } from 'lucide-react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { formatBudget, formatDue, getInitials } from '@/lib/format';
+import { useLanguage, type Language } from '@/lib/translations';
 import type { ProjectDetail, ProjectTask, ProjectMember, DashboardUser, Membership } from '@/lib/data';
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: any }> = {
@@ -67,6 +70,225 @@ export default function ProjectDetailClient({ user, membership, project: initial
   const [busy, setBusy] = useState(false);
   const [taskQuery, setTaskQuery] = useState('');
 
+  // Translations
+  const [lang, setLang] = useState<Language>('en');
+  useEffect(() => {
+    const saved = localStorage.getItem('lang') as Language;
+    if (saved && ['en', 'sq', 'mk'].includes(saved)) {
+      setLang(saved);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleStorage = () => {
+      const saved = localStorage.getItem('lang') as Language;
+      if (saved && ['en', 'sq', 'mk'].includes(saved)) {
+        setLang(saved);
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
+  const { t } = useLanguage(lang);
+
+  // Assignment of People to Tasks & Projects
+  const [taskAssigneeId, setTaskAssigneeId] = useState('');
+  const [allCompanyMembers, setAllCompanyMembers] = useState<{ userId: string; fullName: string }[]>([]);
+  const [showAddMember, setShowAddMember] = useState(false);
+  const [selectedMemberId, setSelectedMemberId] = useState('');
+
+  // Assignment of Inventory Materials to Projects
+  const [allInventoryItems, setAllInventoryItems] = useState<{ id: string; name: string; unit: string }[]>([]);
+  const [showAssignMaterial, setShowAssignMaterial] = useState(false);
+  const [selectedMaterialId, setSelectedMaterialId] = useState('');
+  const [assignedQty, setAssignedQty] = useState(1);
+  const [assignedMaterials, setAssignedMaterials] = useState<{ id: string; name: string; quantity: number; unit: string }[]>([]);
+
+  // Linking Documents to Projects
+  const [projectDocuments, setProjectDocuments] = useState<{ id: string; name: string; filePath: string }[]>([]);
+  const [showUploadDoc, setShowUploadDoc] = useState(false);
+  const [docName, setDocName] = useState('');
+  const [docFile, setDocFile] = useState<File | null>(null);
+
+  // Load everything on mount
+  useEffect(() => {
+    async function loadData() {
+      const supabase = createClient();
+      
+      // Load company members
+      const { data: cmData } = await supabase
+        .from('company_members')
+        .select('user_id, profiles(full_name)')
+        .eq('company_id', membership?.companyId || '');
+      if (cmData) {
+        setAllCompanyMembers(cmData.map((m: any) => ({
+          userId: m.user_id,
+          fullName: m.profiles?.full_name ?? 'Unknown',
+        })));
+      }
+
+      // Load inventory items
+      const { data: invData } = await supabase
+        .from('inventory_items')
+        .select('id, name, unit')
+        .eq('company_id', membership?.companyId || '');
+      if (invData) {
+        setAllInventoryItems(invData);
+      }
+
+      // Load project documents
+      const { data: docData } = await supabase
+        .from('documents')
+        .select('id, name, file_path')
+        .eq('project_id', project.id);
+      if (docData) {
+        setProjectDocuments(docData.map((d: any) => ({
+          id: d.id,
+          name: d.name,
+          filePath: d.file_path,
+        })));
+      }
+    }
+
+    if (membership?.companyId) {
+      loadData();
+      
+      // Load assigned materials from localStorage
+      const saved = localStorage.getItem(`assigned_materials_${project.id}`);
+      if (saved) {
+        setAssignedMaterials(JSON.parse(saved));
+      }
+    }
+  }, [membership, project.id]);
+
+  // Project member management
+  async function handleAddProjectMember() {
+    if (!selectedMemberId) return;
+    const existing = project.members.some((m) => m.userId === selectedMemberId);
+    if (existing) {
+      alert('Member is already assigned to this project.');
+      return;
+    }
+    const memberName = allCompanyMembers.find((m) => m.userId === selectedMemberId)?.fullName ?? 'Unknown';
+    setProject((prev) => ({
+      ...prev,
+      members: [
+        ...prev.members,
+        {
+          id: selectedMemberId,
+          userId: selectedMemberId,
+          fullName: memberName,
+          avatarUrl: null,
+          role: 'employee',
+          jobTitle: null,
+          joinedAt: new Date().toISOString(),
+        },
+      ],
+    }));
+    setShowAddMember(false);
+    // Persist
+    const { error } = await createClient().from('project_members').insert({
+      project_id: project.id,
+      user_id: selectedMemberId,
+    });
+    if (error) console.error(error);
+    router.refresh();
+  }
+
+  async function handleRemoveProjectMember(memberUserId: string) {
+    if (!confirm('Remove member from this project?')) return;
+    setProject((prev) => ({
+      ...prev,
+      members: prev.members.filter((m) => m.userId !== memberUserId),
+    }));
+    const { error } = await createClient()
+      .from('project_members')
+      .delete()
+      .eq('project_id', project.id)
+      .eq('user_id', memberUserId);
+    if (error) console.error(error);
+    router.refresh();
+  }
+
+  // Material assignment
+  function handleAssignMaterial() {
+    if (!selectedMaterialId) return;
+    const material = allInventoryItems.find((m) => m.id === selectedMaterialId);
+    if (!material) return;
+
+    const existingIdx = assignedMaterials.findIndex((m) => m.id === selectedMaterialId);
+    let updated;
+    if (existingIdx > -1) {
+      updated = assignedMaterials.map((m, idx) => idx === existingIdx ? { ...m, quantity: m.quantity + assignedQty } : m);
+    } else {
+      updated = [
+        ...assignedMaterials,
+        { id: material.id, name: material.name, quantity: assignedQty, unit: material.unit },
+      ];
+    }
+    setAssignedMaterials(updated);
+    localStorage.setItem(`assigned_materials_${project.id}`, JSON.stringify(updated));
+    setShowAssignMaterial(false);
+    setSelectedMaterialId('');
+    setAssignedQty(1);
+  }
+
+  function handleUnassignMaterial(materialId: string) {
+    const updated = assignedMaterials.filter((m) => m.id !== materialId);
+    setAssignedMaterials(updated);
+    localStorage.setItem(`assigned_materials_${project.id}`, JSON.stringify(updated));
+  }
+
+  // Document upload
+  async function handleUploadDoc(event: React.FormEvent) {
+    event.preventDefault();
+    if (!docFile || !membership) return;
+    setBusy(true);
+
+    const supabase = createClient();
+    const fileExt = docFile.name.split('.').pop();
+    const filePath = `${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('documents')
+      .upload(filePath, docFile);
+
+    if (uploadError) {
+      alert(uploadError.message);
+      setBusy(false);
+      return;
+    }
+
+    const { data: docData, error: dbError } = await supabase
+      .from('documents')
+      .insert({
+        company_id: membership.companyId,
+        project_id: project.id,
+        name: docName || docFile.name,
+        file_path: filePath,
+        mime_type: docFile.type,
+        size_bytes: docFile.size,
+        uploaded_by: user.id,
+      })
+      .select()
+      .single();
+
+    setBusy(false);
+    if (dbError) {
+      alert(dbError.message);
+      return;
+    }
+
+    setProjectDocuments((prev) => [
+      ...prev,
+      { id: docData.id, name: docData.name, filePath: docData.file_path },
+    ]);
+    setShowUploadDoc(false);
+    setDocName('');
+    setDocFile(null);
+  }
+
   // Sync with server data on refresh
   useEffect(() => {
     setProject(initialProject);
@@ -95,6 +317,13 @@ export default function ProjectDetailClient({ user, membership, project: initial
     if (!title || !membership) return;
     setShowNewTask(false);
     const tempId = 'tmp-' + Date.now();
+    const selectedAssignee = taskAssigneeId
+      ? {
+          id: taskAssigneeId,
+          fullName: project.members.find((m) => m.userId === taskAssigneeId)?.fullName ?? 'Unknown',
+          avatarUrl: null
+        }
+      : null;
     const newTaskObj: ProjectTask = {
       id: tempId,
       title,
@@ -102,7 +331,7 @@ export default function ProjectDetailClient({ user, membership, project: initial
       status: 'todo',
       priority: taskPriority,
       dueDate: taskDue || null,
-      assignee: { id: user.id, fullName: user.fullName, avatarUrl: null },
+      assignee: selectedAssignee,
       createdAt: new Date().toISOString(),
     };
     setProject((prev) => ({
@@ -114,6 +343,7 @@ export default function ProjectDetailClient({ user, membership, project: initial
     setTaskDescription('');
     setTaskDue('');
     setTaskPriority('medium');
+    setTaskAssigneeId('');
     const { error } = await createClient().from('tasks').insert({
       company_id: membership.companyId,
       project_id: project.id,
@@ -121,7 +351,7 @@ export default function ProjectDetailClient({ user, membership, project: initial
       description: taskDescription || null,
       priority: taskPriority,
       due_date: taskDue || null,
-      assignee_id: user.id,
+      assignee_id: taskAssigneeId || null,
       status: 'todo',
     });
     if (error) console.error(error);
@@ -194,25 +424,36 @@ export default function ProjectDetailClient({ user, membership, project: initial
             </svg>
             <span>Projects</span>
           </Link>
-          <Link href="#" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <Link href="/people" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
               <circle cx="9" cy="7" r="4" />
             </svg>
             <span>People</span>
           </Link>
-          <Link href="#" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <Link href="/inventory" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
             </svg>
             <span>Inventory</span>
           </Link>
-          <Link href="#" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <Link href="/documents" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
               <polyline points="14 2 14 8 20 8" />
             </svg>
             <span>Documents</span>
+          </Link>
+        </nav>
+        <div className="nav-label market-label">Connect</div>
+        <nav>
+          <Link href="/marketplace" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="9" cy="21" r="1" />
+              <circle cx="20" cy="21" r="1" />
+              <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+            </svg>
+            <span>Marketplace</span>
           </Link>
         </nav>
       </aside>
@@ -227,6 +468,32 @@ export default function ProjectDetailClient({ user, membership, project: initial
             {project.name} <span>/</span> <strong>{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}</strong>
           </div>
           <div className="header-actions">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginRight: 8 }}>
+              <select
+                value={lang}
+                onChange={(e) => {
+                  const newLang = e.target.value as Language;
+                  setLang(newLang);
+                  localStorage.setItem('lang', newLang);
+                  window.dispatchEvent(new Event('storage'));
+                }}
+                style={{
+                  border: '1px solid #edf0f3',
+                  borderRadius: 6,
+                  padding: '5px 8px',
+                  fontSize: 12,
+                  background: '#fff',
+                  cursor: 'pointer',
+                  color: '#3a4150',
+                  fontWeight: 500,
+                  outline: 'none',
+                }}
+              >
+                <option value="en">EN</option>
+                <option value="sq">SQ</option>
+                <option value="mk">MK</option>
+              </select>
+            </div>
             {canManage && activeTab === 'tasks' && (
               <button className="primary" onClick={() => setShowNewTask(true)}>
                 <Plus size={17} /> Add task
@@ -399,13 +666,13 @@ export default function ProjectDetailClient({ user, membership, project: initial
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                    <button className="secondary" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button className="secondary" style={{ display: 'flex', alignItems: 'center', gap: 8 }} onClick={() => { setActiveTab('tasks'); setShowNewTask(true); }}>
                       <Plus size={16} /> Add task
                     </button>
-                    <button className="secondary" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button className="secondary" style={{ display: 'flex', alignItems: 'center', gap: 8 }} onClick={() => { setActiveTab('team'); setShowAddMember(true); }}>
                       <Users size={16} /> Invite member
                     </button>
-                    <button className="secondary" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button className="secondary" style={{ display: 'flex', alignItems: 'center', gap: 8 }} onClick={() => setShowUploadDoc(true)}>
                       <FileText size={16} /> Upload document
                     </button>
                     <button className="secondary" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -414,6 +681,86 @@ export default function ProjectDetailClient({ user, membership, project: initial
                   </div>
                 </div>
               )}
+
+              {/* Materials & Documents Panels */}
+              <div className="dashboard-grid" style={{ marginTop: 24 }}>
+                {/* Materials Panel */}
+                <section className="panel">
+                  <div className="panel-head">
+                    <div>
+                      <h2>{t('inventory')} / Materials</h2>
+                      <p>Materials currently allocated to this project</p>
+                    </div>
+                    {canManage && (
+                      <button className="text-btn" onClick={() => setShowAssignMaterial(true)}>
+                        <Plus size={14} /> Assign Material
+                      </button>
+                    )}
+                  </div>
+                  <div className="materials-list">
+                    {assignedMaterials.length === 0 ? (
+                      <p className="subhead">No materials allocated to this project yet.</p>
+                    ) : (
+                      <div style={{ display: 'grid', gap: 10 }}>
+                        {assignedMaterials.map((m) => (
+                          <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8f9fb', padding: '10px 12px', borderRadius: 8 }}>
+                            <div>
+                              <strong style={{ fontSize: 13, color: '#202635' }}>{m.name}</strong>
+                              <small style={{ display: 'block', color: '#9299a7', marginTop: 2 }}>Allocated resource</small>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                              <span style={{ fontSize: 13, fontWeight: 600, color: '#4e64da' }}>
+                                {m.quantity} {m.unit}
+                              </span>
+                              {canManage && (
+                                <button className="dots" onClick={() => handleUnassignMaterial(m.id)} style={{ color: '#ef766b', border: 0, background: 'none', cursor: 'pointer' }}>
+                                  <X size={15} />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </section>
+
+                {/* Documents Panel */}
+                <section className="panel">
+                  <div className="panel-head">
+                    <div>
+                      <h2>{t('documents')}</h2>
+                      <p>Linked files and records</p>
+                    </div>
+                    {canManage && (
+                      <button className="text-btn" onClick={() => setShowUploadDoc(true)}>
+                        <Plus size={14} /> Upload Doc
+                      </button>
+                    )}
+                  </div>
+                  <div className="documents-list">
+                    {projectDocuments.length === 0 ? (
+                      <p className="subhead">No documents linked to this project yet.</p>
+                    ) : (
+                      <div style={{ display: 'grid', gap: 10 }}>
+                        {projectDocuments.map((doc) => (
+                          <div key={doc.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8f9fb', padding: '10px 12px', borderRadius: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <FileText size={18} style={{ color: '#5267dc' }} />
+                              <div>
+                                <strong style={{ fontSize: 13, color: '#202635' }}>{doc.name}</strong>
+                              </div>
+                            </div>
+                            <a href={`/documents`} className="text-btn" style={{ fontSize: 11 }}>
+                              View <ArrowUpRight size={13} />
+                            </a>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </section>
+              </div>
             </div>
           )}
 
@@ -648,6 +995,31 @@ export default function ProjectDetailClient({ user, membership, project: initial
                 </select>
               </label>
               <label style={{ marginTop: 16 }}>
+                Assignee (optional)
+                <select
+                  value={taskAssigneeId}
+                  onChange={(e) => setTaskAssigneeId(e.target.value)}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    height: 42,
+                    border: '1px solid #e0e3e9',
+                    borderRadius: 6,
+                    padding: '0 10px',
+                    marginTop: 8,
+                    font: "12px 'DM Sans'",
+                    background: '#fff',
+                  }}
+                >
+                  <option value="">Unassigned</option>
+                  {project.members.map((m) => (
+                    <option key={m.userId} value={m.userId}>
+                      {m.fullName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label style={{ marginTop: 16 }}>
                 Due date (optional)
                 <input
                   type="date"
@@ -663,6 +1035,160 @@ export default function ProjectDetailClient({ user, membership, project: initial
                   <Plus size={16} /> {busy ? 'Adding...' : 'Add task'}
                 </button>
               </div>
+            </form>
+          </div>
+        )}
+
+        {/* Add Project Member Modal */}
+        {showAddMember && (
+          <div className="modal-backdrop" onClick={() => setShowAddMember(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <div>
+                  <p className="eyebrow">{t('people')}</p>
+                  <h2>Assign Member to Project</h2>
+                </div>
+                <button type="button" className="modal-close" onClick={() => setShowAddMember(false)}>
+                  <X size={18} />
+                </button>
+              </div>
+              <label>
+                Select company member
+                <select
+                  value={selectedMemberId}
+                  onChange={(e) => setSelectedMemberId(e.target.value)}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    height: 42,
+                    border: '1px solid #e0e3e9',
+                    borderRadius: 6,
+                    padding: '0 10px',
+                    marginTop: 8,
+                    font: "12px 'DM Sans'",
+                    background: '#fff',
+                  }}
+                >
+                  <option value="">Choose a member...</option>
+                  {allCompanyMembers.map((m) => (
+                    <option key={m.userId} value={m.userId}>{m.fullName}</option>
+                  ))}
+                </select>
+              </label>
+              <div className="modal-actions" style={{ marginTop: 24 }}>
+                <button type="button" className="secondary" onClick={() => setShowAddMember(false)}>
+                  Cancel
+                </button>
+                <button className="primary" onClick={handleAddProjectMember} disabled={!selectedMemberId}>
+                  <Plus size={16} /> Add member
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Assign Material Modal */}
+        {showAssignMaterial && (
+          <div className="modal-backdrop" onClick={() => setShowAssignMaterial(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <div>
+                  <p className="eyebrow">{t('inventory')}</p>
+                  <h2>Allocate Material to Project</h2>
+                </div>
+                <button type="button" className="modal-close" onClick={() => setShowAssignMaterial(false)}>
+                  <X size={18} />
+                </button>
+              </div>
+              <div style={{ display: 'grid', gap: 16 }}>
+                <label>
+                  Select material
+                  <select
+                    value={selectedMaterialId}
+                    onChange={(e) => setSelectedMaterialId(e.target.value)}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      height: 42,
+                      border: '1px solid #e0e3e9',
+                      borderRadius: 6,
+                      padding: '0 10px',
+                      marginTop: 8,
+                      font: "12px 'DM Sans'",
+                      background: '#fff',
+                    }}
+                  >
+                    <option value="">Choose a material...</option>
+                    {allInventoryItems.map((item) => (
+                      <option key={item.id} value={item.id}>{item.name} ({item.unit})</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Quantity
+                  <input
+                    type="number"
+                    min="1"
+                    value={assignedQty}
+                    onChange={(e) => setAssignedQty(Number(e.target.value) || 1)}
+                  />
+                </label>
+              </div>
+              <div className="modal-actions" style={{ marginTop: 24 }}>
+                <button type="button" className="secondary" onClick={() => setShowAssignMaterial(false)}>
+                  Cancel
+                </button>
+                <button className="primary" onClick={handleAssignMaterial} disabled={!selectedMaterialId}>
+                  <Plus size={16} /> Allocate resource
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Upload Doc Modal */}
+        {showUploadDoc && (
+          <div className="modal-backdrop" onClick={() => setShowUploadDoc(false)}>
+            <form className="modal" onSubmit={handleUploadDoc} onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <div>
+                  <p className="eyebrow">{t('documents')}</p>
+                  <h2>Upload and Link File</h2>
+                </div>
+                <button type="button" className="modal-close" onClick={() => setShowUploadDoc(false)} disabled={busy}>
+                  <X size={18} />
+                </button>
+              </div>
+              <div style={{ display: 'grid', gap: 16 }}>
+                <label>
+                  File <span style={{ color: '#ef4444' }}>*</span>
+                  <input
+                    type="file"
+                    required
+                    onChange={(e) => setDocFile(e.target.files?.[0] || null)}
+                    disabled={busy}
+                    style={{ display: 'block', width: '100%', marginTop: 8, padding: '8px 12px', border: '1px solid #e0e3e9', borderRadius: 6, font: "12px 'DM Sans'" }}
+                  />
+                </label>
+                <label>
+                  Document Name (optional)
+                  <input
+                    value={docName}
+                    onChange={(e) => setDocName(e.target.value)}
+                    placeholder="Leave empty to use file name"
+                    disabled={busy}
+                  />
+                </label>
+              </div>
+              <div className="modal-actions" style={{ marginTop: 24 }}>
+                <button type="button" className="secondary" onClick={() => setShowUploadDoc(false)} disabled={busy}>
+                  Cancel
+                </button>
+                <button className="primary" type="submit" disabled={busy || !docFile}>
+                  {busy ? <Loader2 size={16} className="spin" /> : <Plus size={16} />} Upload and Link
+                </button>
+              </div>
+              <style>{`.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}`}</style>
             </form>
           </div>
         )}
