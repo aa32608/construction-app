@@ -7,16 +7,19 @@ import {
   Search,
   Filter,
   ChevronDown,
-  ArrowUpRight,
   MoreHorizontal,
   FolderOpen,
   Clock,
   CheckCircle,
   AlertTriangle,
   Archive,
+  Download,
+  Trash2,
+  X,
+  Loader2,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-import { formatBudget, formatDue, slugify } from '@/lib/format';
+import { formatBudget, formatDue } from '@/lib/format';
 import type { ProjectListItem, DashboardUser, Membership, DashboardStats } from '@/lib/data';
 
 type ProjectStatus = 'planning' | 'active' | 'on_hold' | 'completed' | 'archived';
@@ -44,6 +47,15 @@ export default function ProjectsClient({ user, membership, projects: initialProj
   const [showNewProject, setShowNewProject] = useState(false);
   const [newProject, setNewProject] = useState('');
   const [busy, setBusy] = useState(false);
+
+  // Edit/Manage Project Modal state
+  const [editProject, setEditProject] = useState<ProjectListItem | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editClient, setEditClient] = useState('');
+  const [editStatus, setEditStatus] = useState<string>('planning');
+  const [editProgress, setEditProgress] = useState(0);
+  const [editBudget, setEditBudget] = useState(0);
+  const [editDue, setEditDue] = useState('');
 
   const filteredProjects = projects.filter((p) => {
     const matchesQuery = (p.name + ' ' + (p.clientName ?? '')).toLowerCase().includes(query.toLowerCase());
@@ -83,6 +95,84 @@ export default function ProjectsClient({ user, membership, projects: initialProj
     });
     if (error) console.error(error);
     router.refresh();
+  }
+
+  async function handleUpdateProject(event: React.FormEvent) {
+    event.preventDefault();
+    if (!editProject) return;
+    setBusy(true);
+
+    const updatedProject = {
+      name: editName.trim() || editProject.name,
+      client_name: editClient.trim() || null,
+      status: editStatus,
+      progress: editProgress,
+      budget: editBudget,
+      due_date: editDue || null,
+    };
+
+    setProjects((prev) =>
+      prev.map((p) =>
+        p.id === editProject.id
+          ? {
+              ...p,
+              name: updatedProject.name,
+              clientName: updatedProject.client_name,
+              status: editStatus,
+              progress: editProgress,
+              budget: editBudget,
+              dueDate: updatedProject.due_date,
+            }
+          : p
+      )
+    );
+
+    const targetId = editProject.id;
+    setEditProject(null);
+    setBusy(false);
+
+    const { error } = await createClient().from('projects').update(updatedProject).eq('id', targetId);
+    if (error) console.error(error);
+    router.refresh();
+  }
+
+  async function handleDeleteProject(id: string, name: string) {
+    if (!confirm(`Are you sure you want to delete project "${name}"? All associated tasks will be deleted.`)) return;
+    setBusy(true);
+    setProjects((prev) => prev.filter((p) => p.id !== id));
+    if (editProject?.id === id) setEditProject(null);
+    setBusy(false);
+
+    const { error } = await createClient().from('projects').delete().eq('id', id);
+    if (error) console.error(error);
+    router.refresh();
+  }
+
+  function exportProjectsCSV() {
+    if (filteredProjects.length === 0) {
+      alert('No projects available to export.');
+      return;
+    }
+    const headers = ['Project Name', 'Client Name', 'Status', 'Progress (%)', 'Budget (EUR)', 'Due Date', 'Total Tasks', 'Completed Tasks'];
+    const rows = filteredProjects.map((p) => [
+      `"${p.name.replace(/"/g, '""')}"`,
+      `"${(p.clientName ?? 'Internal').replace(/"/g, '""')}"`,
+      p.status,
+      p.progress,
+      p.budget,
+      p.dueDate ?? '',
+      p.taskCount,
+      p.completedTaskCount,
+    ]);
+    const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `constructos_projects_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   }
 
   function getStatusConfig(status: string) {
@@ -169,7 +259,15 @@ export default function ProjectsClient({ user, membership, projects: initialProj
             </svg>
             <span>Marketplace</span>
           </a>
-          <a href="#" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <a
+            href="#"
+            className="nav-item"
+            onClick={(e) => {
+              e.preventDefault();
+              window.dispatchEvent(new CustomEvent('open-notifications'));
+            }}
+            style={{ textDecoration: 'none', color: 'inherit' }}
+          >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
               <path d="M13.73 21a2 2 0 0 1-3.46 0" />
@@ -179,7 +277,15 @@ export default function ProjectsClient({ user, membership, projects: initialProj
           </a>
         </nav>
         <div className="side-bottom">
-          <a href="#" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <a
+            href="#"
+            className="nav-item"
+            onClick={(e) => {
+              e.preventDefault();
+              window.dispatchEvent(new CustomEvent('open-settings'));
+            }}
+            style={{ textDecoration: 'none', color: 'inherit' }}
+          >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="12" cy="12" r="3" />
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
@@ -195,7 +301,11 @@ export default function ProjectsClient({ user, membership, projects: initialProj
             Workspace <span>/</span> <strong>Projects</strong>
           </div>
           <div className="header-actions">
-            <div className="search">
+            <div
+              className="search"
+              onClick={() => window.dispatchEvent(new CustomEvent('open-search'))}
+              style={{ cursor: 'pointer' }}
+            >
               <Search size={17} />
               <input
                 value={query}
@@ -216,6 +326,9 @@ export default function ProjectsClient({ user, membership, projects: initialProj
               </select>
               <ChevronDown size={15} />
             </div>
+            <button className="secondary" onClick={exportProjectsCSV} title="Export CSV">
+              <Download size={16} /> Export CSV
+            </button>
             <button className="primary" onClick={() => setShowNewProject(true)}>
               <Plus size={17} /> New project
             </button>
@@ -291,7 +404,21 @@ export default function ProjectsClient({ user, membership, projects: initialProj
                     </div>
                     <span>{formatBudget(p.budget)}</span>
                     <span>{p.dueDate ? formatDue(p.dueDate) : '—'}</span>
-                    <button className="dots" onClick={(e) => e.preventDefault()}>
+                    <button
+                      className="dots"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setEditProject(p);
+                        setEditName(p.name);
+                        setEditClient(p.clientName ?? '');
+                        setEditStatus(p.status);
+                        setEditProgress(p.progress);
+                        setEditBudget(p.budget);
+                        setEditDue(p.dueDate ? p.dueDate.split('T')[0] : '');
+                      }}
+                      title="Manage Project Options"
+                    >
                       <MoreHorizontal size={18} />
                     </button>
                   </a>
@@ -301,6 +428,7 @@ export default function ProjectsClient({ user, membership, projects: initialProj
           )}
         </div>
 
+        {/* Create Project Modal */}
         {showNewProject && (
           <div className="modal-backdrop" onClick={() => setShowNewProject(false)}>
             <form className="modal" onSubmit={createProject} onClick={(e) => e.stopPropagation()}>
@@ -310,10 +438,7 @@ export default function ProjectsClient({ user, membership, projects: initialProj
                   <h2>Start a new project</h2>
                 </div>
                 <button type="button" className="modal-close" onClick={() => setShowNewProject(false)}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
+                  <X size={18} />
                 </button>
               </div>
               <label>
@@ -338,7 +463,117 @@ export default function ProjectsClient({ user, membership, projects: initialProj
             </form>
           </div>
         )}
+
+        {/* Edit / Manage Project Modal */}
+        {editProject && (
+          <div className="modal-backdrop" onClick={() => setEditProject(null)}>
+            <form className="modal" onSubmit={handleUpdateProject} onClick={(e) => e.stopPropagation()} style={{ width: 'min(100%, 520px)' }}>
+              <div className="modal-head">
+                <div>
+                  <p className="eyebrow">Project Management</p>
+                  <h2>Edit Project Details</h2>
+                </div>
+                <button type="button" className="modal-close" onClick={() => setEditProject(null)}>
+                  <X size={18} />
+                </button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <label style={{ gridColumn: 'span 2' }}>
+                  Project Name <span style={{ color: '#ef4444' }}>*</span>
+                  <input
+                    autoFocus
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    required
+                  />
+                </label>
+                <label style={{ gridColumn: 'span 2' }}>
+                  Client Name
+                  <input
+                    value={editClient}
+                    onChange={(e) => setEditClient(e.target.value)}
+                    placeholder="e.g. Internal / Client Corp"
+                  />
+                </label>
+                <label>
+                  Status
+                  <select
+                    value={editStatus}
+                    onChange={(e) => setEditStatus(e.target.value)}
+                    style={{ display: 'block', width: '100%', height: 42, border: '1px solid #e0e3e9', borderRadius: 6, padding: '0 10px', marginTop: 8, font: "12px 'DM Sans'", background: '#fff' }}
+                  >
+                    <option value="planning">Planning</option>
+                    <option value="active">Active</option>
+                    <option value="on_hold">On Hold</option>
+                    <option value="completed">Completed</option>
+                    <option value="archived">Archived</option>
+                  </select>
+                </label>
+                <label>
+                  Due Date
+                  <input
+                    type="date"
+                    value={editDue}
+                    onChange={(e) => setEditDue(e.target.value)}
+                  />
+                </label>
+                <label>
+                  Budget (€)
+                  <input
+                    type="number"
+                    min="0"
+                    step="100"
+                    value={editBudget}
+                    onChange={(e) => setEditBudget(Number(e.target.value) || 0)}
+                  />
+                </label>
+                <label>
+                  Progress ({editProgress}%)
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={editProgress}
+                    onChange={(e) => setEditProgress(Number(e.target.value))}
+                    style={{ width: '100%', accentColor: '#5267dc', marginTop: 16 }}
+                  />
+                </label>
+              </div>
+
+              <div className="modal-actions" style={{ justifyContent: 'space-between', marginTop: 24, paddingTop: 16, borderTop: '1px solid #edf0f4' }}>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteProject(editProject.id, editProject.name)}
+                  style={{
+                    border: '1px solid #fde2ba',
+                    background: '#fff0ef',
+                    color: '#df7f73',
+                    borderRadius: 7,
+                    padding: '8px 12px',
+                    font: "600 12px 'DM Sans'",
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    cursor: 'pointer',
+                  }}
+                  disabled={busy}
+                >
+                  <Trash2 size={15} /> Delete Project
+                </button>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button type="button" className="secondary" onClick={() => setEditProject(null)} disabled={busy}>
+                    Cancel
+                  </button>
+                  <button className="primary" type="submit" disabled={busy || !editName.trim()}>
+                    {busy ? <Loader2 size={16} className="spin" /> : null} Save Changes
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        )}
       </main>
+      <style>{`.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   );
 }

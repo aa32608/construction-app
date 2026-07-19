@@ -24,6 +24,9 @@ import {
   Moon,
   Users,
   X,
+  Trash2,
+  Edit,
+  FolderOpen,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { slugify } from '@/lib/format';
@@ -46,21 +49,41 @@ type DashboardProps = {
   todayLabel: string;
 };
 
+const STATUS_LABEL_MAP: Record<string, { label: string; risk: boolean }> = {
+  planning: { label: 'Planning', risk: false },
+  active: { label: 'On track', risk: false },
+  on_hold: { label: 'On hold', risk: true },
+  completed: { label: 'Completed', risk: false },
+  archived: { label: 'Archived', risk: false },
+};
+
 function NavItem({
   icon: Icon,
   label,
   active = false,
   badge,
   href,
+  onClick,
 }: {
   icon: any;
   label: string;
   active?: boolean;
   badge?: string;
   href?: string;
+  onClick?: (e: React.MouseEvent) => void;
 }) {
   return (
-    <a href={href || '#'} className={'nav-item ' + (active ? 'active' : '')} style={{ textDecoration: 'none', color: 'inherit' }}>
+    <a
+      href={href || '#'}
+      onClick={(e) => {
+        if (onClick) {
+          e.preventDefault();
+          onClick(e);
+        }
+      }}
+      className={'nav-item ' + (active ? 'active' : '')}
+      style={{ textDecoration: 'none', color: 'inherit' }}
+    >
       <Icon size={18} />
       <span>{label}</span>
       {badge && <b>{badge}</b>}
@@ -116,6 +139,16 @@ export default function Dashboard({
   const [companyInput, setCompanyInput] = useState('');
   const [companyError, setCompanyError] = useState('');
   const [busy, setBusy] = useState(false);
+
+  // New detailed interactive modals
+  const [quickProject, setQuickProject] = useState<ProjectView | null>(null);
+  const [quickStatus, setQuickStatus] = useState('active');
+  const [quickProgress, setQuickProgress] = useState(0);
+
+  const [showAllTasksModal, setShowAllTasksModal] = useState(false);
+  const [taskFilterStatus, setTaskFilterStatus] = useState<'all' | 'open' | 'done'>('all');
+
+  const [showActivityModal, setShowActivityModal] = useState(false);
 
   // Keep local state in sync when the server refetches data after a mutation.
   useEffect(() => {
@@ -208,6 +241,38 @@ export default function Dashboard({
     if (error) console.error(error);
   }
 
+  async function updateQuickProject(event: React.FormEvent) {
+    event.preventDefault();
+    if (!quickProject) return;
+    const statusObj = STATUS_LABEL_MAP[quickStatus] || { label: 'Planning', risk: false };
+    setProjectItems((items) =>
+      items.map((item) =>
+        item.id === quickProject.id
+          ? { ...item, statusLabel: statusObj.label, risk: statusObj.risk, progress: quickProgress }
+          : item
+      )
+    );
+    const targetId = quickProject.id;
+    setQuickProject(null);
+    const { error } = await createClient()
+      .from('projects')
+      .update({ status: quickStatus, progress: quickProgress })
+      .eq('id', targetId);
+    if (error) console.error(error);
+    router.refresh();
+  }
+
+  async function deleteQuickProject() {
+    if (!quickProject) return;
+    if (!confirm(`Delete project "${quickProject.name}"? This action cannot be undone.`)) return;
+    const targetId = quickProject.id;
+    setProjectItems((items) => items.filter((item) => item.id !== targetId));
+    setQuickProject(null);
+    const { error } = await createClient().from('projects').delete().eq('id', targetId);
+    if (error) console.error(error);
+    router.refresh();
+  }
+
   async function createCompany(event: React.FormEvent) {
     event.preventDefault();
     const name = companyInput.trim();
@@ -261,10 +326,19 @@ export default function Dashboard({
         <div className="nav-label market-label">{t('connect')}</div>
         <nav>
           <NavItem icon={ShoppingBag} label={t('marketplace')} href="/marketplace" />
-          <NavItem icon={Bell} label="Notifications" badge="3" href="#" />
+          <NavItem
+            icon={Bell}
+            label="Notifications"
+            badge="3"
+            onClick={() => window.dispatchEvent(new CustomEvent('open-notifications'))}
+          />
         </nav>
         <div className="side-bottom">
-          <NavItem icon={Settings} label={t('settings')} href="#" />
+          <NavItem
+            icon={Settings}
+            label={t('settings')}
+            onClick={() => window.dispatchEvent(new CustomEvent('open-settings'))}
+          />
           <div className="profile">
             <div className="avatar">{user.initials}</div>
             <div>
@@ -294,7 +368,11 @@ export default function Dashboard({
             {t('workspace')} <span>/</span> <strong>{t('overview')}</strong>
           </div>
           <div className="header-actions">
-            <div className="search">
+            <div
+              className="search"
+              onClick={() => window.dispatchEvent(new CustomEvent('open-search'))}
+              style={{ cursor: 'pointer' }}
+            >
               <Search size={17} />
               <input
                 value={query}
@@ -329,14 +407,25 @@ export default function Dashboard({
                 <option value="mk">MK</option>
               </select>
             </div>
-            <button className="icon-btn" onClick={() => setDark(!dark)}>
+            <button className="icon-btn" onClick={() => setDark(!dark)} title="Toggle theme">
               {dark ? <Sun size={18} /> : <Moon size={18} />}
             </button>
-            <button className="icon-btn notification">
+            <button
+              className="icon-btn notification"
+              onClick={() => window.dispatchEvent(new CustomEvent('open-notifications'))}
+              title="View notifications"
+            >
               <Bell size={18} />
               <i />
             </button>
-            <div className="header-avatar">{user.initials}</div>
+            <div
+              className="header-avatar"
+              style={{ cursor: 'pointer' }}
+              onClick={() => window.dispatchEvent(new CustomEvent('open-settings'))}
+              title="Account preferences"
+            >
+              {user.initials}
+            </div>
           </div>
         </header>
 
@@ -359,7 +448,11 @@ export default function Dashboard({
               </div>
 
               <section className="stat-grid">
-                <div className="stat-card">
+                <div
+                  className="stat-card"
+                  onClick={() => router.push('/projects')}
+                  style={{ cursor: 'pointer' }}
+                >
                   <div className="stat-top">
                     <span>{t('activeProjects')}</span>
                     <div className="stat-icon blue">
@@ -371,7 +464,11 @@ export default function Dashboard({
                     <span className="up">Across {membership.companyName}</span>
                   </p>
                 </div>
-                <div className="stat-card">
+                <div
+                  className="stat-card"
+                  onClick={() => router.push('/projects')}
+                  style={{ cursor: 'pointer' }}
+                >
                   <div className="stat-top">
                     <span>{t('committedBudget')}</span>
                     <div className="stat-icon green">€</div>
@@ -381,7 +478,11 @@ export default function Dashboard({
                     <em>Total across active projects</em>
                   </p>
                 </div>
-                <div className="stat-card">
+                <div
+                  className="stat-card"
+                  onClick={() => setShowAllTasksModal(true)}
+                  style={{ cursor: 'pointer' }}
+                >
                   <div className="stat-top">
                     <span>{t('openTasks')}</span>
                     <div className="stat-icon orange">
@@ -395,7 +496,11 @@ export default function Dashboard({
                     </span>
                   </p>
                 </div>
-                <div className="stat-card">
+                <div
+                  className="stat-card"
+                  onClick={() => router.push('/inventory')}
+                  style={{ cursor: 'pointer' }}
+                >
                   <div className="stat-top">
                     <span>{t('lowStockItems')}</span>
                     <div className="stat-icon red">
@@ -418,7 +523,7 @@ export default function Dashboard({
                       <h2>{t('projects')}</h2>
                       <p>Your active projects at a glance</p>
                     </div>
-                    <button className="text-btn">
+                    <button className="text-btn" onClick={() => router.push('/projects')}>
                       View all <ArrowUpRight size={15} />
                     </button>
                   </div>
@@ -429,7 +534,12 @@ export default function Dashboard({
                       </p>
                     )}
                     {visibleProjects.map((p) => (
-                      <div className="project" key={p.id}>
+                      <div
+                        className="project"
+                        key={p.id}
+                        onClick={() => router.push(`/projects/${p.id}`)}
+                        style={{ cursor: 'pointer' }}
+                      >
                         <div className="project-title">
                           <div className="project-dot" style={{ background: p.color }} />
                           <div>
@@ -439,7 +549,17 @@ export default function Dashboard({
                           <span className={'status ' + (p.risk ? 'risk' : '')}>
                             {p.statusLabel}
                           </span>
-                          <button className="dots">
+                          <button
+                            className="dots"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              e.preventDefault();
+                              setQuickStatus(p.risk ? 'on_hold' : 'active');
+                              setQuickProgress(p.progress);
+                              setQuickProject(p);
+                            }}
+                            title="Quick Project Actions"
+                          >
                             <MoreHorizontal size={18} />
                           </button>
                         </div>
@@ -468,7 +588,7 @@ export default function Dashboard({
                       <h2>{t('openTasks')}</h2>
                       <p>{stats.openTasks} task{stats.openTasks === 1 ? '' : 's'} need your attention</p>
                     </div>
-                    <button className="text-btn">
+                    <button className="text-btn" onClick={() => setShowAllTasksModal(true)}>
                       View all <ArrowUpRight size={15} />
                     </button>
                   </div>
@@ -487,7 +607,10 @@ export default function Dashboard({
                         >
                           {t.done && <CircleCheck size={18} />}
                         </button>
-                        <div>
+                        <div
+                          style={{ cursor: 'pointer' }}
+                          onClick={() => toggleTask(t.id)}
+                        >
                           <strong className={t.done ? 'strike' : ''}>{t.text}</strong>
                           <small>{t.project}</small>
                         </div>
@@ -508,7 +631,7 @@ export default function Dashboard({
                       <h2>{t('recentActivity')}</h2>
                       <p>Updates from your team</p>
                     </div>
-                    <button className="text-btn">
+                    <button className="text-btn" onClick={() => setShowActivityModal(true)}>
                       View all <ArrowUpRight size={15} />
                     </button>
                   </div>
@@ -581,6 +704,7 @@ export default function Dashboard({
           )}
         </div>
 
+        {/* Start New Project Modal */}
         {showNewProject && (
           <div className="modal-backdrop" onClick={() => setShowNewProject(false)}>
             <form className="modal" onSubmit={createProject} onClick={(e) => e.stopPropagation()}>
@@ -615,6 +739,7 @@ export default function Dashboard({
           </div>
         )}
 
+        {/* Add Task Modal */}
         {showNewTask && (
           <div className="modal-backdrop" onClick={() => setShowNewTask(false)}>
             <form className="modal" onSubmit={createTask} onClick={(e) => e.stopPropagation()}>
@@ -679,6 +804,242 @@ export default function Dashboard({
                 </button>
               </div>
             </form>
+          </div>
+        )}
+
+        {/* Quick Project Actions Modal */}
+        {quickProject && (
+          <div className="modal-backdrop" onClick={() => setQuickProject(null)}>
+            <form className="modal" onSubmit={updateQuickProject} onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <div>
+                  <p className="eyebrow">Project Management</p>
+                  <h2>{quickProject.name}</h2>
+                </div>
+                <button type="button" className="modal-close" onClick={() => setQuickProject(null)}>
+                  <X size={18} />
+                </button>
+              </div>
+              <div style={{ display: 'grid', gap: 16 }}>
+                <div>
+                  <label style={{ marginBottom: 6 }}>Current Status</label>
+                  <select
+                    value={quickStatus}
+                    onChange={(e) => setQuickStatus(e.target.value)}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      height: 42,
+                      border: '1px solid #e0e3e9',
+                      borderRadius: 6,
+                      padding: '0 10px',
+                      font: "12px 'DM Sans'",
+                      background: '#fff',
+                    }}
+                  >
+                    <option value="planning">Planning</option>
+                    <option value="active">Active (On track)</option>
+                    <option value="on_hold">On hold (At risk)</option>
+                    <option value="completed">Completed</option>
+                    <option value="archived">Archived</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ marginBottom: 6 }}>Progress ({quickProgress}%)</label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={quickProgress}
+                    onChange={(e) => setQuickProgress(Number(e.target.value))}
+                    style={{ width: '100%', accentColor: '#5267dc', marginTop: 8 }}
+                  />
+                </div>
+              </div>
+              <div className="modal-actions" style={{ justifyContent: 'space-between', marginTop: 24 }}>
+                <button
+                  type="button"
+                  onClick={deleteQuickProject}
+                  style={{
+                    border: '1px solid #fde2ba',
+                    background: '#fff0ef',
+                    color: '#df7f73',
+                    borderRadius: 7,
+                    padding: '8px 12px',
+                    font: "600 12px 'DM Sans'",
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <Trash2 size={15} /> Delete
+                </button>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => router.push(`/projects/${quickProject.id}`)}
+                  >
+                    Open Details
+                  </button>
+                  <button className="primary" type="submit">
+                    Save Changes
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* All Tasks Modal */}
+        {showAllTasksModal && (
+          <div className="modal-backdrop" onClick={() => setShowAllTasksModal(false)}>
+            <div
+              className="modal"
+              onClick={(e) => e.stopPropagation()}
+              style={{ width: 'min(100%, 540px)', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}
+            >
+              <div className="modal-head" style={{ marginBottom: 16 }}>
+                <div>
+                  <p className="eyebrow">Task Management</p>
+                  <h2>All Workspace Tasks</h2>
+                </div>
+                <button type="button" className="modal-close" onClick={() => setShowAllTasksModal(false)}>
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, marginBottom: 16, borderBottom: '1px solid #edf0f4', paddingBottom: 12 }}>
+                {(['all', 'open', 'done'] as const).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setTaskFilterStatus(s)}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: 6,
+                      border: '1px solid #edf0f4',
+                      background: taskFilterStatus === s ? '#eef1ff' : '#fff',
+                      color: taskFilterStatus === s ? '#5267dc' : '#777f8e',
+                      font: "600 11px 'DM Sans'",
+                      cursor: 'pointer',
+                      textTransform: 'capitalize',
+                    }}
+                  >
+                    {s} ({taskItems.filter((t) => (s === 'all' ? true : s === 'open' ? !t.done : t.done)).length})
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ overflowY: 'auto', flex: 1, display: 'grid', gap: 12, paddingRight: 4 }}>
+                {taskItems
+                  .filter((t) => (taskFilterStatus === 'all' ? true : taskFilterStatus === 'open' ? !t.done : t.done))
+                  .map((t) => (
+                    <div
+                      key={t.id}
+                      style={{
+                        padding: 12,
+                        background: '#f8f9fe',
+                        border: '1px solid #edf0f4',
+                        borderRadius: 8,
+                        display: 'flex',
+                        gap: 12,
+                        alignItems: 'center',
+                      }}
+                    >
+                      <button
+                        aria-label={t.done ? 'Mark task incomplete' : 'Mark task complete'}
+                        className={'check ' + (t.done ? 'checked' : '')}
+                        onClick={() => toggleTask(t.id)}
+                      >
+                        {t.done && <CircleCheck size={18} />}
+                      </button>
+                      <div style={{ flex: 1 }}>
+                        <strong className={t.done ? 'strike' : ''} style={{ fontSize: 13, color: '#1e2433' }}>
+                          {t.text}
+                        </strong>
+                        <small style={{ color: '#8f97a5', display: 'block', marginTop: 2 }}>{t.project}</small>
+                      </div>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: t.due === 'Today' ? '#dc856d' : '#8f97a5' }}>
+                        {t.due || 'No due date'}
+                      </span>
+                    </div>
+                  ))}
+              </div>
+
+              <div className="modal-actions" style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid #edf0f4', justifyContent: 'space-between' }}>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => {
+                    setShowAllTasksModal(false);
+                    setShowNewTask(true);
+                  }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                >
+                  <Plus size={15} /> Add New Task
+                </button>
+                <button type="button" className="primary" onClick={() => setShowAllTasksModal(false)}>
+                  Done
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Activity Log Modal */}
+        {showActivityModal && (
+          <div className="modal-backdrop" onClick={() => setShowActivityModal(false)}>
+            <div
+              className="modal"
+              onClick={(e) => e.stopPropagation()}
+              style={{ width: 'min(100%, 520px)', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}
+            >
+              <div className="modal-head" style={{ marginBottom: 16 }}>
+                <div>
+                  <p className="eyebrow">Audit Log</p>
+                  <h2>Workspace Activity Feed</h2>
+                </div>
+                <button type="button" className="modal-close" onClick={() => setShowActivityModal(false)}>
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div style={{ overflowY: 'auto', flex: 1, display: 'grid', gap: 12, paddingRight: 4 }}>
+                <div className="activity-row" style={{ padding: '10px 0' }}>
+                  <div className="avatar purple">{user.initials}</div>
+                  <p>
+                    <strong>{user.fullName}</strong> set up the <b>{membership?.companyName ?? 'your workspace'}</b> workspace
+                    <small>{todayLabel}</small>
+                  </p>
+                </div>
+                {projectItems.map((p) => (
+                  <div className="activity-row" key={p.id} style={{ padding: '10px 0' }}>
+                    <div className="avatar blue">PR</div>
+                    <p>
+                      <strong>{user.fullName}</strong> created / updated project <b>{p.name}</b>
+                      <small>Recent</small>
+                    </p>
+                  </div>
+                ))}
+                {taskItems.slice(0, 3).map((t) => (
+                  <div className="activity-row" key={t.id} style={{ padding: '10px 0' }}>
+                    <div className="avatar green">TK</div>
+                    <p>
+                      <strong>Team member</strong> {t.done ? 'completed' : 'added'} task <b>{t.text}</b> ({t.project})
+                      <small>Recent</small>
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="modal-actions" style={{ marginTop: 20 }}>
+                <button type="button" className="primary" onClick={() => setShowActivityModal(false)}>
+                  Close
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </main>

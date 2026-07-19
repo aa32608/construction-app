@@ -23,6 +23,7 @@ import {
   MessageSquare,
   X,
   Loader2,
+  Bell,
 } from 'lucide-react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
@@ -111,6 +112,29 @@ export default function ProjectDetailClient({ user, membership, project: initial
   const [docName, setDocName] = useState('');
   const [docFile, setDocFile] = useState<File | null>(null);
 
+  // Project Settings Modal state
+  const [showProjectSettings, setShowProjectSettings] = useState(false);
+  const [settingsName, setSettingsName] = useState(initialProject.name);
+  const [settingsClient, setSettingsClient] = useState(initialProject.clientName || '');
+  const [settingsDesc, setSettingsDesc] = useState(initialProject.description || '');
+  const [settingsStatus, setSettingsStatus] = useState(initialProject.status);
+  const [settingsBudget, setSettingsBudget] = useState(initialProject.budget);
+  const [settingsDue, setSettingsDue] = useState(initialProject.dueDate ? initialProject.dueDate.split('T')[0] : '');
+
+  // Edit Task Modal state
+  const [editTaskModal, setEditTaskModal] = useState<ProjectTask | null>(null);
+  const [editTaskTitle, setEditTaskTitle] = useState('');
+  const [editTaskDesc, setEditTaskDesc] = useState('');
+  const [editTaskPriority, setEditTaskPriority] = useState('medium');
+  const [editTaskStatus, setEditTaskStatus] = useState('todo');
+  const [editTaskAssignee, setEditTaskAssignee] = useState('');
+  const [editTaskDue, setEditTaskDue] = useState('');
+
+  // Custom Activity Notes state
+  const [customNotes, setCustomNotes] = useState<{ id: string; author: string; initials: string; text: string; time: string }[]>([]);
+  const [showAddNoteModal, setShowAddNoteModal] = useState(false);
+  const [noteText, setNoteText] = useState('');
+
   // Load everything on mount
   useEffect(() => {
     async function loadData() {
@@ -158,6 +182,12 @@ export default function ProjectDetailClient({ user, membership, project: initial
       const saved = localStorage.getItem(`assigned_materials_${project.id}`);
       if (saved) {
         setAssignedMaterials(JSON.parse(saved));
+      }
+
+      // Load custom activity notes from localStorage
+      const savedNotes = localStorage.getItem(`project_notes_${project.id}`);
+      if (savedNotes) {
+        setCustomNotes(JSON.parse(savedNotes));
       }
     }
   }, [membership, project.id]);
@@ -292,9 +322,59 @@ export default function ProjectDetailClient({ user, membership, project: initial
   // Sync with server data on refresh
   useEffect(() => {
     setProject(initialProject);
+    setSettingsName(initialProject.name);
+    setSettingsClient(initialProject.clientName || '');
+    setSettingsDesc(initialProject.description || '');
+    setSettingsStatus(initialProject.status);
+    setSettingsBudget(initialProject.budget);
+    setSettingsDue(initialProject.dueDate ? initialProject.dueDate.split('T')[0] : '');
   }, [initialProject]);
 
   const canManage = membership && ['owner', 'manager', 'engineer'].includes(membership.role);
+
+  async function handleSaveProjectSettings(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+
+    const updates = {
+      name: settingsName.trim() || project.name,
+      client_name: settingsClient.trim() || null,
+      description: settingsDesc.trim() || null,
+      status: settingsStatus,
+      budget: settingsBudget,
+      due_date: settingsDue || null,
+    };
+
+    setProject((prev) => ({
+      ...prev,
+      name: updates.name,
+      clientName: updates.client_name,
+      description: updates.description,
+      status: updates.status,
+      budget: updates.budget,
+      dueDate: updates.due_date,
+    }));
+
+    setShowProjectSettings(false);
+    setBusy(false);
+
+    const { error } = await createClient().from('projects').update(updates).eq('id', project.id);
+    if (error) console.error(error);
+    router.refresh();
+  }
+
+  async function handleDeleteProject() {
+    if (!confirm(`Delete project "${project.name}"? This will permanently remove all tasks and assignments.`)) return;
+    setBusy(true);
+    const { error } = await createClient().from('projects').delete().eq('id', project.id);
+    setBusy(false);
+    if (error) {
+      alert(error.message);
+      return;
+    }
+    router.push('/projects');
+    router.refresh();
+  }
 
   async function toggleTask(taskId: string, currentStatus: string) {
     const next = currentStatus === 'done' ? 'todo' : 'done';
@@ -358,6 +438,50 @@ export default function ProjectDetailClient({ user, membership, project: initial
     router.refresh();
   }
 
+  async function handleUpdateTask(event: React.FormEvent) {
+    event.preventDefault();
+    if (!editTaskModal) return;
+    const updatedTask = {
+      title: editTaskTitle.trim() || editTaskModal.title,
+      description: editTaskDesc.trim() || null,
+      priority: editTaskPriority,
+      status: editTaskStatus,
+      due_date: editTaskDue || null,
+      assignee_id: editTaskAssignee || null,
+    };
+
+    const selectedAssignee = editTaskAssignee
+      ? {
+          id: editTaskAssignee,
+          fullName: project.members.find((m) => m.userId === editTaskAssignee)?.fullName ?? 'Unknown',
+          avatarUrl: null,
+        }
+      : null;
+
+    setProject((prev) => ({
+      ...prev,
+      tasks: prev.tasks.map((t) =>
+        t.id === editTaskModal.id
+          ? {
+              ...t,
+              title: updatedTask.title,
+              description: updatedTask.description,
+              priority: updatedTask.priority,
+              status: updatedTask.status,
+              dueDate: updatedTask.due_date,
+              assignee: selectedAssignee,
+            }
+          : t
+      ),
+    }));
+
+    const targetId = editTaskModal.id;
+    setEditTaskModal(null);
+    const { error } = await createClient().from('tasks').update(updatedTask).eq('id', targetId);
+    if (error) console.error(error);
+    router.refresh();
+  }
+
   async function deleteTask(taskId: string) {
     if (!confirm('Delete this task?')) return;
     setProject((prev) => {
@@ -376,6 +500,23 @@ export default function ProjectDetailClient({ user, membership, project: initial
     });
     const { error } = await createClient().from('tasks').delete().eq('id', taskId);
     if (error) console.error(error);
+  }
+
+  function handleAddCustomNote(e: React.FormEvent) {
+    e.preventDefault();
+    if (!noteText.trim()) return;
+    const newNote = {
+      id: 'note-' + Date.now(),
+      author: user.fullName,
+      initials: getInitials(user.fullName),
+      text: noteText.trim(),
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+    const nextNotes = [newNote, ...customNotes];
+    setCustomNotes(nextNotes);
+    localStorage.setItem(`project_notes_${project.id}`, JSON.stringify(nextNotes));
+    setNoteText('');
+    setShowAddNoteModal(false);
   }
 
   const filteredTasks = project.tasks.filter((t) =>
@@ -418,7 +559,7 @@ export default function ProjectDetailClient({ user, membership, project: initial
             </svg>
             <span>Overview</span>
           </Link>
-          <Link href="/projects" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <Link href="/projects" className="nav-item active" style={{ textDecoration: 'none', color: 'inherit' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
             </svg>
@@ -455,7 +596,34 @@ export default function ProjectDetailClient({ user, membership, project: initial
             </svg>
             <span>Marketplace</span>
           </Link>
+          <a
+            href="#"
+            className="nav-item"
+            onClick={(e) => {
+              e.preventDefault();
+              window.dispatchEvent(new CustomEvent('open-notifications'));
+            }}
+            style={{ textDecoration: 'none', color: 'inherit' }}
+          >
+            <Bell size={18} />
+            <span>Notifications</span>
+            <b>3</b>
+          </a>
         </nav>
+        <div className="side-bottom">
+          <a
+            href="#"
+            className="nav-item"
+            onClick={(e) => {
+              e.preventDefault();
+              window.dispatchEvent(new CustomEvent('open-settings'));
+            }}
+            style={{ textDecoration: 'none', color: 'inherit' }}
+          >
+            <Settings size={18} />
+            <span>Settings</span>
+          </a>
+        </div>
       </aside>
 
       <main className="main">
@@ -494,10 +662,17 @@ export default function ProjectDetailClient({ user, membership, project: initial
                 <option value="mk">MK</option>
               </select>
             </div>
-            {canManage && activeTab === 'tasks' && (
-              <button className="primary" onClick={() => setShowNewTask(true)}>
-                <Plus size={17} /> Add task
-              </button>
+            {canManage && (
+              <>
+                <button className="secondary" onClick={() => setShowProjectSettings(true)} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Settings size={16} /> Settings
+                </button>
+                {activeTab === 'tasks' && (
+                  <button className="primary" onClick={() => setShowNewTask(true)}>
+                    <Plus size={17} /> Add task
+                  </button>
+                )}
+              </>
             )}
           </div>
         </header>
@@ -675,7 +850,7 @@ export default function ProjectDetailClient({ user, membership, project: initial
                     <button className="secondary" style={{ display: 'flex', alignItems: 'center', gap: 8 }} onClick={() => setShowUploadDoc(true)}>
                       <FileText size={16} /> Upload document
                     </button>
-                    <button className="secondary" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button className="secondary" style={{ display: 'flex', alignItems: 'center', gap: 8 }} onClick={() => setShowProjectSettings(true)}>
                       <Settings size={16} /> Project settings
                     </button>
                   </div>
@@ -834,11 +1009,24 @@ export default function ProjectDetailClient({ user, membership, project: initial
                             </div>
                           </div>
                           {canManage && (
-                            <div className="task-actions">
-                              <button className="icon-btn" title="Edit" onClick={(e) => e.stopPropagation()}>
+                            <div className="task-actions" style={{ opacity: 1 }}>
+                              <button
+                                className="icon-btn"
+                                title="Edit Task"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditTaskModal(t);
+                                  setEditTaskTitle(t.title);
+                                  setEditTaskDesc(t.description || '');
+                                  setEditTaskPriority(t.priority);
+                                  setEditTaskStatus(t.status);
+                                  setEditTaskAssignee(t.assignee?.id || '');
+                                  setEditTaskDue(t.dueDate ? t.dueDate.split('T')[0] : '');
+                                }}
+                              >
                                 <Edit size={16} />
                               </button>
-                              <button className="icon-btn danger" title="Delete" onClick={(e) => { e.stopPropagation(); deleteTask(t.id); }}>
+                              <button className="icon-btn danger" title="Delete Task" onClick={(e) => { e.stopPropagation(); deleteTask(t.id); }}>
                                 <Trash2 size={16} />
                               </button>
                             </div>
@@ -862,7 +1050,7 @@ export default function ProjectDetailClient({ user, membership, project: initial
                     <p>{project.members.length} member{project.members.length === 1 ? '' : 's'} on this project</p>
                   </div>
                   {canManage && (
-                    <button className="secondary" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button className="secondary" onClick={() => setShowAddMember(true)} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <Plus size={16} /> Invite
                     </button>
                   )}
@@ -873,11 +1061,15 @@ export default function ProjectDetailClient({ user, membership, project: initial
                       <div className="avatar" style={{ background: '#8b72d9' }}>{getInitials(m.fullName)}</div>
                       <div>
                         <strong>{m.fullName}</strong>
-                        <small>{m.role}</small>
+                        <small style={{ textTransform: 'capitalize' }}>{m.role}</small>
                       </div>
                       {canManage && m.userId !== user.id && (
-                        <button className="icon-btn" title="Remove">
-                          <MoreHorizontal size={18} />
+                        <button
+                          className="icon-btn danger"
+                          title="Remove member from project"
+                          onClick={() => handleRemoveProjectMember(m.userId)}
+                        >
+                          <Trash2 size={16} />
                         </button>
                       )}
                     </div>
@@ -893,30 +1085,45 @@ export default function ProjectDetailClient({ user, membership, project: initial
               <div className="panel">
                 <div className="panel-head">
                   <div>
-                    <h2>Recent activity</h2>
-                    <p>Updates from your team</p>
+                    <h2>Recent activity & Notes</h2>
+                    <p>Updates, status changes, and team notes</p>
                   </div>
+                  <button className="primary" onClick={() => setShowAddNoteModal(true)} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Plus size={15} /> Post Note
+                  </button>
                 </div>
-                <div className="activity-feed">
-                  <div className="activity-row">
+                <div className="activity-feed" style={{ display: 'grid', gap: 12 }}>
+                  {customNotes.map((note) => (
+                    <div key={note.id} style={{ display: 'flex', gap: 12, padding: '12px 14px', background: '#f8f9fe', border: '1px solid #edf0f4', borderRadius: 8 }}>
+                      <div className="avatar purple" style={{ width: 34, height: 34 }}>{note.initials}</div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <strong style={{ fontSize: 13, color: '#202635' }}>{note.author}</strong>
+                          <small style={{ color: '#9aa1ad', fontSize: 10 }}>{note.time}</small>
+                        </div>
+                        <p style={{ margin: '4px 0 0', fontSize: 12, color: '#566070' }}>{note.text}</p>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="activity-row" style={{ padding: '12px 0' }}>
                     <div className="avatar purple">{getInitials(user.fullName)}</div>
                     <p>
                       <strong>{user.fullName}</strong> created project <b>{project.name}</b>
                       <small>{formatDue(project.createdAt.split('T')[0])}</small>
                     </p>
                   </div>
-                  <div className="activity-row">
+                  <div className="activity-row" style={{ padding: '12px 0' }}>
                     <div className="avatar blue">T</div>
                     <p>
-                      <strong>Team member</strong> added a task
-                      <small>2 hours ago</small>
+                      <strong>Team member</strong> added task or updated schedule
+                      <small>Recently</small>
                     </p>
                   </div>
-                  <div className="activity-row">
+                  <div className="activity-row" style={{ padding: '12px 0' }}>
                     <div className="avatar green">M</div>
                     <p>
                       <strong>Maria Santos</strong> updated project status to <b>{statusConfig.label}</b>
-                      <small>Yesterday</small>
+                      <small>Earlier</small>
                     </p>
                   </div>
                 </div>
@@ -924,6 +1131,247 @@ export default function ProjectDetailClient({ user, membership, project: initial
             </div>
           )}
         </div>
+
+        {/* Project Settings Modal */}
+        {showProjectSettings && (
+          <div className="modal-backdrop" onClick={() => setShowProjectSettings(false)}>
+            <form className="modal" onSubmit={handleSaveProjectSettings} onClick={(e) => e.stopPropagation()} style={{ width: 'min(100%, 540px)' }}>
+              <div className="modal-head">
+                <div>
+                  <p className="eyebrow">Project Settings</p>
+                  <h2>Configure & Manage Project</h2>
+                </div>
+                <button type="button" className="modal-close" onClick={() => setShowProjectSettings(false)} disabled={busy}>
+                  <X size={18} />
+                </button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <label style={{ gridColumn: 'span 2' }}>
+                  Project Name <span style={{ color: '#ef4444' }}>*</span>
+                  <input
+                    autoFocus
+                    value={settingsName}
+                    onChange={(e) => setSettingsName(e.target.value)}
+                    required
+                    disabled={busy}
+                  />
+                </label>
+                <label style={{ gridColumn: 'span 2' }}>
+                  Client Name
+                  <input
+                    value={settingsClient}
+                    onChange={(e) => setSettingsClient(e.target.value)}
+                    placeholder="Internal / Client Corp"
+                    disabled={busy}
+                  />
+                </label>
+                <label>
+                  Status
+                  <select
+                    value={settingsStatus}
+                    onChange={(e) => setSettingsStatus(e.target.value)}
+                    disabled={busy}
+                    style={{ display: 'block', width: '100%', height: 42, border: '1px solid #e0e3e9', borderRadius: 6, padding: '0 10px', marginTop: 8, font: "12px 'DM Sans'", background: '#fff' }}
+                  >
+                    <option value="planning">Planning</option>
+                    <option value="active">Active</option>
+                    <option value="on_hold">On Hold</option>
+                    <option value="completed">Completed</option>
+                    <option value="archived">Archived</option>
+                  </select>
+                </label>
+                <label>
+                  Due Date
+                  <input
+                    type="date"
+                    value={settingsDue}
+                    onChange={(e) => setSettingsDue(e.target.value)}
+                    disabled={busy}
+                  />
+                </label>
+                <label style={{ gridColumn: 'span 2' }}>
+                  Budget (€)
+                  <input
+                    type="number"
+                    min="0"
+                    step="100"
+                    value={settingsBudget}
+                    onChange={(e) => setSettingsBudget(Number(e.target.value) || 0)}
+                    disabled={busy}
+                  />
+                </label>
+                <label style={{ gridColumn: 'span 2' }}>
+                  Description
+                  <textarea
+                    value={settingsDesc}
+                    onChange={(e) => setSettingsDesc(e.target.value)}
+                    rows={3}
+                    disabled={busy}
+                    style={{ display: 'block', width: '100%', border: '1px solid #e0e3e9', borderRadius: 6, padding: '10px', marginTop: 8, font: "12px 'DM Sans'" }}
+                  />
+                </label>
+              </div>
+
+              <div className="modal-actions" style={{ justifyContent: 'space-between', marginTop: 24, paddingTop: 16, borderTop: '1px solid #edf0f4' }}>
+                <button
+                  type="button"
+                  onClick={handleDeleteProject}
+                  style={{
+                    border: '1px solid #fde2ba',
+                    background: '#fff0ef',
+                    color: '#df7f73',
+                    borderRadius: 7,
+                    padding: '8px 12px',
+                    font: "600 12px 'DM Sans'",
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    cursor: 'pointer',
+                  }}
+                  disabled={busy}
+                >
+                  <Trash2 size={15} /> Delete Project
+                </button>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button type="button" className="secondary" onClick={() => setShowProjectSettings(false)} disabled={busy}>
+                    Cancel
+                  </button>
+                  <button className="primary" type="submit" disabled={busy || !settingsName.trim()}>
+                    {busy ? <Loader2 size={16} className="spin" /> : null} Save Changes
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* Edit Task Modal */}
+        {editTaskModal && (
+          <div className="modal-backdrop" onClick={() => setEditTaskModal(null)}>
+            <form className="modal" onSubmit={handleUpdateTask} onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <div>
+                  <p className="eyebrow">Tasks</p>
+                  <h2>Edit Task Details</h2>
+                </div>
+                <button type="button" className="modal-close" onClick={() => setEditTaskModal(null)}>
+                  <X size={18} />
+                </button>
+              </div>
+              <label>
+                Task title <span style={{ color: '#ef4444' }}>*</span>
+                <input
+                  autoFocus
+                  value={editTaskTitle}
+                  onChange={(e) => setEditTaskTitle(e.target.value)}
+                  required
+                />
+              </label>
+              <label style={{ marginTop: 16 }}>
+                Description
+                <textarea
+                  value={editTaskDesc}
+                  onChange={(e) => setEditTaskDesc(e.target.value)}
+                  rows={3}
+                  style={{ display: 'block', width: '100%', border: '1px solid #e0e3e9', borderRadius: 6, padding: '10px', marginTop: 8, font: "12px 'DM Sans'" }}
+                />
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 16 }}>
+                <label>
+                  Status
+                  <select
+                    value={editTaskStatus}
+                    onChange={(e) => setEditTaskStatus(e.target.value)}
+                    style={{ display: 'block', width: '100%', height: 42, border: '1px solid #e0e3e9', borderRadius: 6, padding: '0 10px', marginTop: 8, font: "12px 'DM Sans'", background: '#fff' }}
+                  >
+                    <option value="todo">To do</option>
+                    <option value="in_progress">In progress</option>
+                    <option value="done">Done</option>
+                  </select>
+                </label>
+                <label>
+                  Priority
+                  <select
+                    value={editTaskPriority}
+                    onChange={(e) => setEditTaskPriority(e.target.value)}
+                    style={{ display: 'block', width: '100%', height: 42, border: '1px solid #e0e3e9', borderRadius: 6, padding: '0 10px', marginTop: 8, font: "12px 'DM Sans'", background: '#fff' }}
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="urgent">Urgent</option>
+                  </select>
+                </label>
+                <label>
+                  Assignee
+                  <select
+                    value={editTaskAssignee}
+                    onChange={(e) => setEditTaskAssignee(e.target.value)}
+                    style={{ display: 'block', width: '100%', height: 42, border: '1px solid #e0e3e9', borderRadius: 6, padding: '0 10px', marginTop: 8, font: "12px 'DM Sans'", background: '#fff' }}
+                  >
+                    <option value="">Unassigned</option>
+                    {project.members.map((m) => (
+                      <option key={m.userId} value={m.userId}>{m.fullName}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Due Date
+                  <input
+                    type="date"
+                    value={editTaskDue}
+                    onChange={(e) => setEditTaskDue(e.target.value)}
+                  />
+                </label>
+              </div>
+              <div className="modal-actions" style={{ marginTop: 24 }}>
+                <button type="button" className="secondary" onClick={() => setEditTaskModal(null)}>
+                  Cancel
+                </button>
+                <button className="primary" type="submit" disabled={!editTaskTitle.trim()}>
+                  Save Task
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* Post Note Modal */}
+        {showAddNoteModal && (
+          <div className="modal-backdrop" onClick={() => setShowAddNoteModal(false)}>
+            <form className="modal" onSubmit={handleAddCustomNote} onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <div>
+                  <p className="eyebrow">Activity & Timeline</p>
+                  <h2>Post Note to Project Feed</h2>
+                </div>
+                <button type="button" className="modal-close" onClick={() => setShowAddNoteModal(false)}>
+                  <X size={18} />
+                </button>
+              </div>
+              <label>
+                Note / Update text <span style={{ color: '#ef4444' }}>*</span>
+                <textarea
+                  autoFocus
+                  required
+                  value={noteText}
+                  onChange={(e) => setNoteText(e.target.value)}
+                  placeholder="e.g. Completed foundation pour on site B. Awaiting curing inspection tomorrow."
+                  rows={4}
+                  style={{ display: 'block', width: '100%', border: '1px solid #e0e3e9', borderRadius: 6, padding: '12px', marginTop: 8, font: "13px 'DM Sans'" }}
+                />
+              </label>
+              <div className="modal-actions" style={{ marginTop: 20 }}>
+                <button type="button" className="secondary" onClick={() => setShowAddNoteModal(false)}>
+                  Cancel
+                </button>
+                <button className="primary" type="submit" disabled={!noteText.trim()}>
+                  Post Update
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
 
         {/* New Task Modal */}
         {showNewTask && (
