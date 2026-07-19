@@ -12,6 +12,8 @@ import {
   Briefcase,
   Loader2,
   X,
+  Bell,
+  Settings,
 } from 'lucide-react';
 import { getInitials } from '@/lib/format';
 import type { CompanyMember, DashboardUser, Membership, DashboardStats } from '@/lib/data';
@@ -44,6 +46,11 @@ export default function PeopleClient({ user, membership, members: initialMembers
   const [inviteError, setInviteError] = useState('');
   const [inviteSuccess, setInviteSuccess] = useState('');
   const [isPending, startTransition] = useTransition();
+
+  // Edit Member Modal state
+  const [editMember, setEditMember] = useState<CompanyMember | null>(null);
+  const [editTitleInput, setEditTitleInput] = useState('');
+  const [editRoleInput, setEditRoleInput] = useState('employee');
 
   const [lang, setLang] = useState<Language>('en');
   useEffect(() => {
@@ -146,6 +153,28 @@ export default function PeopleClient({ user, membership, members: initialMembers
     );
   }
 
+  async function handleUpdateMemberDetails(event: React.FormEvent) {
+    event.preventDefault();
+    if (!editMember || !isOwner) return;
+    setBusy(true);
+
+    const result = await updateMemberRoleAction(editMember.userId, editRoleInput, editTitleInput.trim() || undefined);
+    setBusy(false);
+    if (result.error) {
+      alert(result.error);
+      return;
+    }
+
+    setMembers((prev) =>
+      prev.map((m) =>
+        m.userId === editMember.userId
+          ? { ...m, role: editRoleInput, jobTitle: editTitleInput.trim() || null }
+          : m
+      )
+    );
+    setEditMember(null);
+  }
+
   async function handleRemoveMember(memberId: string) {
     if (!isOwner) return;
     if (!confirm('Remove this member from the company? This cannot be undone.')) return;
@@ -157,6 +186,7 @@ export default function PeopleClient({ user, membership, members: initialMembers
       return;
     }
     setMembers((prev) => prev.filter((m) => m.userId !== memberId));
+    if (editMember?.userId === memberId) setEditMember(null);
   }
 
   function getRoleConfig(role: string) {
@@ -245,21 +275,31 @@ export default function PeopleClient({ user, membership, members: initialMembers
             </svg>
             <span>{t('marketplace')}</span>
           </a>
-          <a href="#" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-              <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-            </svg>
+          <a
+            href="#"
+            className="nav-item"
+            onClick={(e) => {
+              e.preventDefault();
+              window.dispatchEvent(new CustomEvent('open-notifications'));
+            }}
+            style={{ textDecoration: 'none', color: 'inherit' }}
+          >
+            <Bell size={18} />
             <span>Notifications</span>
             <b>3</b>
           </a>
         </nav>
         <div className="side-bottom">
-          <a href="#" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-            </svg>
+          <a
+            href="#"
+            className="nav-item"
+            onClick={(e) => {
+              e.preventDefault();
+              window.dispatchEvent(new CustomEvent('open-settings'));
+            }}
+            style={{ textDecoration: 'none', color: 'inherit' }}
+          >
+            <Settings size={18} />
             <span>Settings</span>
           </a>
         </div>
@@ -271,7 +311,11 @@ export default function PeopleClient({ user, membership, members: initialMembers
             {t('workspace')} <span>/</span> <strong>{t('people')}</strong>
           </div>
           <div className="header-actions">
-            <div className="search">
+            <div
+              className="search"
+              onClick={() => window.dispatchEvent(new CustomEvent('open-search'))}
+              style={{ cursor: 'pointer' }}
+            >
               <Search size={17} />
               <input
                 value={query}
@@ -407,6 +451,20 @@ export default function PeopleClient({ user, membership, members: initialMembers
                             ))}
                           </select>
                         </div>
+                        {isOwner && (
+                          <button
+                            className="icon-btn"
+                            onClick={() => {
+                              setEditMember(member);
+                              setEditTitleInput(member.jobTitle || '');
+                              setEditRoleInput(member.role);
+                            }}
+                            title="Edit Role & Job Title"
+                            disabled={busy || isPending}
+                          >
+                            <UserCog size={16} />
+                          </button>
+                        )}
                         <button
                           className="icon-btn danger"
                           onClick={() => handleRemoveMember(member.userId)}
@@ -424,6 +482,7 @@ export default function PeopleClient({ user, membership, members: initialMembers
           )}
         </div>
 
+        {/* Invite Member Modal */}
         {showInvite && (
           <div className="modal-backdrop" onClick={() => setShowInvite(false)}>
             <form className="modal" onSubmit={handleInvite} onClick={(e) => e.stopPropagation()}>
@@ -503,6 +562,64 @@ export default function PeopleClient({ user, membership, members: initialMembers
           </div>
         )}
 
+        {/* Edit Member Modal */}
+        {editMember && (
+          <div className="modal-backdrop" onClick={() => setEditMember(null)}>
+            <form className="modal" onSubmit={handleUpdateMemberDetails} onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <div>
+                  <p className="eyebrow">Team Member</p>
+                  <h2>Edit {editMember.fullName}</h2>
+                </div>
+                <button type="button" className="modal-close" onClick={() => setEditMember(null)} disabled={busy || isPending}>
+                  <X size={18} />
+                </button>
+              </div>
+              <label>
+                Role
+                <select
+                  value={editRoleInput}
+                  onChange={(e) => setEditRoleInput(e.target.value)}
+                  disabled={busy || isPending}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    height: 42,
+                    border: '1px solid #e0e3e9',
+                    borderRadius: 6,
+                    padding: '0 10px',
+                    marginTop: 8,
+                    font: "12px 'DM Sans'",
+                    background: '#fff',
+                  }}
+                >
+                  {roleOptions.map((r) => (
+                    <option key={r.value} value={r.value}>{r.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label style={{ marginTop: 16 }}>
+                Job Title
+                <input
+                  value={editTitleInput}
+                  onChange={(e) => setEditTitleInput(e.target.value)}
+                  placeholder="e.g. Lead Engineer"
+                  disabled={busy || isPending}
+                />
+              </label>
+              <div className="modal-actions">
+                <button type="button" className="secondary" onClick={() => setEditMember(null)} disabled={busy || isPending}>
+                  Cancel
+                </button>
+                <button className="primary" type="submit" disabled={busy || isPending}>
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* Create Role Modal */}
         {showCreateRole && (
           <div className="modal-backdrop" onClick={() => setShowCreateRole(false)}>
             <form className="modal" onSubmit={handleCreateRole} onClick={(e) => e.stopPropagation()}>

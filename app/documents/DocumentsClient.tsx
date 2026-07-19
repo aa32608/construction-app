@@ -9,11 +9,13 @@ import {
   FileText,
   Download,
   Trash2,
-  MoreHorizontal,
   Loader2,
   Upload,
   Eye,
   FolderOpen,
+  X,
+  Bell,
+  Settings,
 } from 'lucide-react';
 import { formatFileSize, getFileIcon, formatDue } from '@/lib/format';
 import type { Document, DocumentStats, ProjectListItem, DashboardUser, Membership, DashboardStats } from '@/lib/data';
@@ -47,6 +49,9 @@ export default function DocumentsClient({ user, membership, documents: initialDo
   const [isPending, startTransition] = useTransition();
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
 
+  // Document Preview Modal state
+  const [previewDocModal, setPreviewDocModal] = useState<Document | null>(null);
+
   const canManage = membership && ['owner', 'manager'].includes(membership.role);
   const canUpload = membership !== null;
 
@@ -65,7 +70,7 @@ export default function DocumentsClient({ user, membership, documents: initialDo
     const [type, subtype] = mimeType.split('/');
     if (type === 'application' && subtype?.includes('pdf')) return 'PDF';
     if (type === 'application' && subtype?.includes('word')) return 'Word';
-    if (type === 'application' && subtype?.includes('excel') || subtype?.includes('spreadsheet')) return 'Excel';
+    if (type === 'application' && (subtype?.includes('excel') || subtype?.includes('spreadsheet'))) return 'Excel';
     if (type === 'application' && subtype?.includes('powerpoint')) return 'PowerPoint';
     if (type === 'image') return 'Image';
     if (type === 'video') return 'Video';
@@ -82,7 +87,6 @@ export default function DocumentsClient({ user, membership, documents: initialDo
     setBusy(true);
     setUploadProgress((prev) => ({ ...prev, [file.name]: 0 }));
 
-    // Simulate progress for UX
     const progressInterval = setInterval(() => {
       setUploadProgress((prev) => {
         const current = prev[file.name] ?? 0;
@@ -153,6 +157,32 @@ export default function DocumentsClient({ user, membership, documents: initialDo
     }
 
     setDocuments((prev) => prev.filter((d) => d.id !== documentId));
+    if (previewDocModal?.id === documentId) setPreviewDocModal(null);
+  }
+
+  function exportDocumentsCSV() {
+    if (filteredDocuments.length === 0) {
+      alert('No documents available to export.');
+      return;
+    }
+    const headers = ['Document Name', 'Project', 'File Type', 'Size (Bytes)', 'Version', 'Uploaded Date'];
+    const rows = filteredDocuments.map((doc) => [
+      `"${doc.name.replace(/"/g, '""')}"`,
+      `"${(doc.projectName ?? 'General').replace(/"/g, '""')}"`,
+      `"${getTypeLabel(doc.mimeType)}"`,
+      doc.sizeBytes,
+      doc.version,
+      doc.createdAt.split('T')[0],
+    ]);
+    const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `constructos_documents_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   }
 
   const projectOptions = [
@@ -234,21 +264,31 @@ export default function DocumentsClient({ user, membership, documents: initialDo
             </svg>
             <span>Marketplace</span>
           </a>
-          <a href="#" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-              <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-            </svg>
+          <a
+            href="#"
+            className="nav-item"
+            onClick={(e) => {
+              e.preventDefault();
+              window.dispatchEvent(new CustomEvent('open-notifications'));
+            }}
+            style={{ textDecoration: 'none', color: 'inherit' }}
+          >
+            <Bell size={18} />
             <span>Notifications</span>
             <b>3</b>
           </a>
         </nav>
         <div className="side-bottom">
-          <a href="#" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-            </svg>
+          <a
+            href="#"
+            className="nav-item"
+            onClick={(e) => {
+              e.preventDefault();
+              window.dispatchEvent(new CustomEvent('open-settings'));
+            }}
+            style={{ textDecoration: 'none', color: 'inherit' }}
+          >
+            <Settings size={18} />
             <span>Settings</span>
           </a>
         </div>
@@ -260,7 +300,11 @@ export default function DocumentsClient({ user, membership, documents: initialDo
             Workspace <span>/</span> <strong>Documents</strong>
           </div>
           <div className="header-actions">
-            <div className="search">
+            <div
+              className="search"
+              onClick={() => window.dispatchEvent(new CustomEvent('open-search'))}
+              style={{ cursor: 'pointer' }}
+            >
               <Search size={17} />
               <input
                 value={query}
@@ -290,6 +334,9 @@ export default function DocumentsClient({ user, membership, documents: initialDo
               </select>
               <ChevronDown size={15} />
             </div>
+            <button className="secondary" onClick={exportDocumentsCSV} title="Export CSV log">
+              <Download size={16} /> Export CSV
+            </button>
             {canUpload && (
               <button className="primary" onClick={() => setShowUpload(true)} disabled={busy || isPending}>
                 <Upload size={17} /> Upload
@@ -409,28 +456,28 @@ export default function DocumentsClient({ user, membership, documents: initialDo
                         <small style={{ color: '#9299a7' }}>{formatFileSize(doc.sizeBytes)}</small>
                       </div>
                       <span>{formatDue(doc.createdAt.split('T')[0])}</span>
-                      <div className="doc-actions" style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                      <div className="doc-actions" style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', width: 100 }}>
                         <button
                           className="icon-btn"
-                          onClick={() => handleDownload(doc.id, doc.filePath, doc.name)}
-                          title="Download"
+                          onClick={() => setPreviewDocModal(doc)}
+                          title="Preview Document Details"
                           disabled={busy || isPending || isUploading}
                         >
-                          <Download size={16} />
+                          <Eye size={16} />
                         </button>
                         <button
                           className="icon-btn"
                           onClick={() => handleDownload(doc.id, doc.filePath, doc.name)}
-                          title="Preview"
+                          title="Download File"
                           disabled={busy || isPending || isUploading}
                         >
-                          <Eye size={16} />
+                          <Download size={16} />
                         </button>
                         {canManage && (
                           <button
                             className="icon-btn danger"
                             onClick={() => handleDelete(doc.id, doc.name)}
-                            title="Delete"
+                            title="Delete Document"
                             disabled={busy || isPending || isUploading}
                           >
                             <Trash2 size={16} />
@@ -515,6 +562,90 @@ export default function DocumentsClient({ user, membership, documents: initialDo
               </div>
               <style>{`.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}`}</style>
             </form>
+          </div>
+        )}
+
+        {/* Document Preview Modal */}
+        {previewDocModal && (
+          <div className="modal-backdrop" onClick={() => setPreviewDocModal(null)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 'min(100%, 540px)' }}>
+              <div className="modal-head">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div className="doc-icon" style={{ fontSize: 24, width: 44, height: 44, background: '#eef1ff', color: '#5267dc', borderRadius: 8, display: 'grid', placeItems: 'center' }}>
+                    {getFileIcon(previewDocModal.mimeType)}
+                  </div>
+                  <div>
+                    <p className="eyebrow" style={{ margin: 0 }}>Document Inspection</p>
+                    <h2 style={{ fontSize: 18, margin: '2px 0 0' }}>{previewDocModal.name}</h2>
+                  </div>
+                </div>
+                <button type="button" className="modal-close" onClick={() => setPreviewDocModal(null)}>
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div style={{ background: '#f8f9fe', border: '1px solid #edf0f4', borderRadius: 8, padding: 16, marginTop: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div>
+                    <span style={{ fontSize: 10, textTransform: 'uppercase', color: '#9aa1ad', fontWeight: 600 }}>File Type</span>
+                    <strong style={{ display: 'block', fontSize: 13, color: '#202635', marginTop: 2 }}>{getTypeLabel(previewDocModal.mimeType)}</strong>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: 10, textTransform: 'uppercase', color: '#9aa1ad', fontWeight: 600 }}>Size</span>
+                    <strong style={{ display: 'block', fontSize: 13, color: '#202635', marginTop: 2 }}>{formatFileSize(previewDocModal.sizeBytes)}</strong>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: 10, textTransform: 'uppercase', color: '#9aa1ad', fontWeight: 600 }}>Project</span>
+                    <strong style={{ display: 'block', fontSize: 13, color: '#202635', marginTop: 2 }}>{previewDocModal.projectName ?? 'General Workspace'}</strong>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: 10, textTransform: 'uppercase', color: '#9aa1ad', fontWeight: 600 }}>Version</span>
+                    <strong style={{ display: 'block', fontSize: 13, color: '#202635', marginTop: 2 }}>v{previewDocModal.version}</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ marginTop: 16, padding: 20, background: '#fff', border: '1px dashed #e0e3e9', borderRadius: 8, textAlign: 'center' }}>
+                <FileText size={36} style={{ color: '#8f97a5', margin: '0 auto 8px' }} />
+                <p style={{ fontSize: 13, fontWeight: 600, color: '#313947', margin: '0 0 4px' }}>Ready for inspection or download</p>
+                <p style={{ fontSize: 12, color: '#8f97a5', margin: 0 }}>Click download to open the verified file in your system viewer.</p>
+              </div>
+
+              <div className="modal-actions" style={{ justifyContent: 'space-between', marginTop: 24 }}>
+                {canManage ? (
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(previewDocModal.id, previewDocModal.name)}
+                    style={{
+                      border: '1px solid #fde2ba',
+                      background: '#fff0ef',
+                      color: '#df7f73',
+                      borderRadius: 7,
+                      padding: '8px 12px',
+                      font: "600 12px 'DM Sans'",
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <Trash2 size={15} /> Delete File
+                  </button>
+                ) : <div />}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button type="button" className="secondary" onClick={() => setPreviewDocModal(null)}>
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={() => handleDownload(previewDocModal.id, previewDocModal.filePath, previewDocModal.name)}
+                  >
+                    <Download size={16} /> Download File
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </main>

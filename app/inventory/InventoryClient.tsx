@@ -8,13 +8,14 @@ import {
   ChevronDown,
   Package,
   AlertTriangle,
-  MoreHorizontal,
   Edit,
   Trash2,
   Minus,
   Plus as PlusIcon,
   Loader2,
   Download,
+  Bell,
+  Settings,
 } from 'lucide-react';
 import { getInitials } from '@/lib/format';
 import type { InventoryItem, InventoryStats, DashboardUser, Membership, DashboardStats } from '@/lib/data';
@@ -55,9 +56,6 @@ export default function InventoryClient({ user, membership, items: initialItems,
     const matchesLowStock = !lowStockOnly || item.lowStock;
     return matchesQuery && matchesCategory && matchesWarehouse && matchesLowStock;
   });
-
-  const lowStockItems = filteredItems.filter((i) => i.lowStock);
-  const outOfStockItems = filteredItems.filter((i) => i.currentStock === 0);
 
   async function handleCreateItem(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -146,6 +144,36 @@ export default function InventoryClient({ user, membership, items: initialItems,
     });
   }
 
+  function exportInventoryCSV() {
+    if (filteredItems.length === 0) {
+      alert('No inventory items available to export.');
+      return;
+    }
+    const headers = ['Item Name', 'SKU', 'Category', 'Warehouse', 'Current Stock', 'Minimum Stock', 'Unit', 'Status'];
+    const rows = filteredItems.map((item) => {
+      const status = getStockStatus(item);
+      return [
+        `"${item.name.replace(/"/g, '""')}"`,
+        `"${(item.sku ?? '').replace(/"/g, '""')}"`,
+        `"${(item.category ?? '').replace(/"/g, '""')}"`,
+        `"${(item.warehouse ?? '').replace(/"/g, '""')}"`,
+        item.currentStock,
+        item.minimumStock,
+        item.unit,
+        `"${status.label}"`,
+      ];
+    });
+    const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `constructos_inventory_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
   function getStockStatus(item: InventoryItem) {
     if (item.currentStock === 0) return { label: 'Out of stock', color: '#ef4444', bg: '#fef2f2' };
     if (item.lowStock) return { label: 'Low stock', color: '#f59e0b', bg: '#fffbeb' };
@@ -224,21 +252,31 @@ export default function InventoryClient({ user, membership, items: initialItems,
             </svg>
             <span>Marketplace</span>
           </a>
-          <a href="#" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-              <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-            </svg>
+          <a
+            href="#"
+            className="nav-item"
+            onClick={(e) => {
+              e.preventDefault();
+              window.dispatchEvent(new CustomEvent('open-notifications'));
+            }}
+            style={{ textDecoration: 'none', color: 'inherit' }}
+          >
+            <Bell size={18} />
             <span>Notifications</span>
             <b>3</b>
           </a>
         </nav>
         <div className="side-bottom">
-          <a href="#" className="nav-item" style={{ textDecoration: 'none', color: 'inherit' }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-            </svg>
+          <a
+            href="#"
+            className="nav-item"
+            onClick={(e) => {
+              e.preventDefault();
+              window.dispatchEvent(new CustomEvent('open-settings'));
+            }}
+            style={{ textDecoration: 'none', color: 'inherit' }}
+          >
+            <Settings size={18} />
             <span>Settings</span>
           </a>
         </div>
@@ -250,7 +288,11 @@ export default function InventoryClient({ user, membership, items: initialItems,
             Workspace <span>/</span> <strong>Inventory</strong>
           </div>
           <div className="header-actions">
-            <div className="search">
+            <div
+              className="search"
+              onClick={() => window.dispatchEvent(new CustomEvent('open-search'))}
+              style={{ cursor: 'pointer' }}
+            >
               <Search size={17} />
               <input
                 value={query}
@@ -289,6 +331,9 @@ export default function InventoryClient({ user, membership, items: initialItems,
               />
               <span>Low stock only</span>
             </label>
+            <button className="secondary" onClick={exportInventoryCSV} title="Export inventory report">
+              <Download size={16} /> Export CSV
+            </button>
             {canManage && (
               <button className="primary" onClick={() => setShowNewItem(true)} disabled={busy || isPending}>
                 <Plus size={17} /> Add item
@@ -372,7 +417,7 @@ export default function InventoryClient({ user, membership, items: initialItems,
                   <span style={{ textAlign: 'right' }}>Stock</span>
                   <span style={{ textAlign: 'right' }}>Min</span>
                   <span>Status</span>
-                  <span style={{ width: 80 }}></span>
+                  <span style={{ width: 120 }}></span>
                 </div>
                 {filteredItems.map((item) => {
                   const status = getStockStatus(item);
@@ -401,22 +446,38 @@ export default function InventoryClient({ user, membership, items: initialItems,
                         {status.label}
                       </span>
                       {canManage && (
-                        <div className="item-actions" style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                        <div className="item-actions" style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', width: 120 }}>
+                          <button
+                            className="icon-btn"
+                            onClick={() => handleAdjustStock(item.id, -1)}
+                            title="Quick Issue (-1)"
+                            disabled={busy || isPending || item.currentStock <= 0}
+                          >
+                            <Minus size={15} />
+                          </button>
+                          <button
+                            className="icon-btn"
+                            onClick={() => handleAdjustStock(item.id, 1)}
+                            title="Quick Receive (+1)"
+                            disabled={busy || isPending}
+                          >
+                            <PlusIcon size={15} />
+                          </button>
                           <button
                             className="icon-btn"
                             onClick={() => setShowEditItem(item)}
-                            title="Edit"
+                            title="Edit Item Details"
                             disabled={busy || isPending}
                           >
-                            <Edit size={16} />
+                            <Edit size={15} />
                           </button>
                           <button
                             className="icon-btn danger"
                             onClick={() => handleDeleteItem(item.id)}
-                            title="Delete"
+                            title="Delete Item"
                             disabled={busy || isPending}
                           >
-                            <Trash2 size={16} />
+                            <Trash2 size={15} />
                           </button>
                         </div>
                       )}
