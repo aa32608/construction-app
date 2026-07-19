@@ -68,3 +68,32 @@ export function slugify(input: string): string {
   const slug = input.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   return slug || 'workspace';
 }
+
+export function formatFileSize(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+export function getFileIcon(mimeType: string | null): string {
+  if (!mimeType) return '📄';
+  const type = mimeType.split('/')[0];
+  switch (type) {
+    case 'image': return '🖼️';
+    case 'video': return '🎬';
+    case 'audio': return '🎵';
+    case 'application': {
+      const subtype = mimeType.split('/')[1];
+      if (subtype?.includes('pdf')) return '📕';
+      if (subtype?.includes('word') || subtype?.includes('document')) return '📘';
+      if (subtype?.includes('excel') || subtype?.includes('spreadsheet')) return '📗';
+      if (subtype?.includes('powerpoint') || subtype?.includes('presentation')) return '📙';
+      if (subtype?.includes('zip') || subtype?.includes('compressed')) return '📦';
+      return '📄';
+    }
+    case 'text': return '📝';
+    default: return '📄';
+  }
+}
