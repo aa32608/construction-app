@@ -163,7 +163,11 @@ export default function Dashboard({
   const [taskDue, setTaskDue] = useState('');
 
   const [companyInput, setCompanyInput] = useState('');
+  const [companyIndustry, setCompanyIndustry] = useState('Construction');
+  const [companyPhone, setCompanyPhone] = useState('');
+  const [companyAddress, setCompanyAddress] = useState('');
   const [companyError, setCompanyError] = useState('');
+  const [companyMenuOpen, setCompanyMenuOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   // New detailed interactive modals
@@ -308,6 +312,9 @@ export default function Dashboard({
     const { error } = await createClient().rpc('create_company', {
       p_name: name,
       p_slug: slugify(name),
+      p_industry: companyIndustry,
+      p_phone: companyPhone.trim() || null,
+      p_address: companyAddress.trim() || null,
     });
     setBusy(false);
     if (error) {
@@ -348,7 +355,7 @@ export default function Dashboard({
             <X size={20} />
           </button>
         </div>
-        <div className="company">
+        <div className="company" role="button" tabIndex={0} onClick={() => setCompanyMenuOpen(v => !v)} onKeyDown={e => e.key === 'Enter' && setCompanyMenuOpen(v => !v)}>
           <div className="company-logo">
             {(membership?.companyName ?? user.fullName).charAt(0).toUpperCase()}
           </div>
@@ -356,8 +363,14 @@ export default function Dashboard({
             <strong>{membership?.companyName ?? 'Set up workspace'}</strong>
             <small>{membership ? 'Workspace' : 'No company yet'}</small>
           </div>
-          <ChevronDown size={15} />
+          <ChevronDown size={15} style={{ transform: companyMenuOpen ? 'rotate(180deg)' : undefined }} />
         </div>
+        {companyMenuOpen && (
+          <div className="company-menu" style={{ margin: '-18px 3px 18px', padding: 8, background: '#fff', border: '1px solid #e9ebf0', borderRadius: 8 }}>
+            <button className="nav-item" onClick={() => { setCompanyMenuOpen(false); setCompanyInput(''); }}>＋ Add another workspace</button>
+            <small style={{ display: 'block', padding: '6px 12px', color: '#9299a7' }}>You can create another workspace; your current workspace remains available.</small>
+          </div>
+        )}
         <div className="nav-label">{t('workspace')}</div>
         <nav>
           <NavItem icon={LayoutDashboard} label={t('overview')} active href="/" />
@@ -782,6 +795,11 @@ export default function Dashboard({
                       }}
                     />
                   </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
+                    <label>Industry<input value={companyIndustry} onChange={e => setCompanyIndustry(e.target.value)} /></label>
+                    <label>Phone<input value={companyPhone} onChange={e => setCompanyPhone(e.target.value)} placeholder="+355 ..." /></label>
+                  </div>
+                  <label style={{ marginTop: 12 }}>Business address<input value={companyAddress} onChange={e => setCompanyAddress(e.target.value)} placeholder="Street, city, country" /></label>
                   {companyError && (
                     <p style={{ color: '#df7f73', fontSize: 11, margin: '10px 0 0' }}>{companyError}</p>
                   )}

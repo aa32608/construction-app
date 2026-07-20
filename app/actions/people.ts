@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { revalidatePath } from 'next/cache';
 
 export async function inviteUserAction(
@@ -27,9 +28,13 @@ export async function inviteUserAction(
   const canInvite = ['owner', 'manager'].includes(membership.role);
   if (!canInvite) return { success: false, error: 'Insufficient permissions' };
 
-  // Use Supabase Admin API to invite user (requires service role)
-  // Note: This works in server actions with service role key
-  const { error } = await supabase.auth.admin.inviteUserByEmail(email, {
+  // Auth Admin endpoints reject the public/anon client with “User not allowed”.
+  // Use the server-only service-role client for this operation.
+  let admin;
+  try { admin = createAdminClient(); } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Server invite configuration is missing' };
+  }
+  const { error } = await admin.auth.admin.inviteUserByEmail(email, {
     data: { company_id: membership.company_id, role, job_title: jobTitle ?? null },
     redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'}/auth/callback`,
   });
