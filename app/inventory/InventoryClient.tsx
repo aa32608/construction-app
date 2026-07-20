@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useState, useTransition, useEffect } from 'react';
+import { useLanguage, type Language } from '@/lib/translations';
 import {
   Plus,
   Search,
@@ -16,6 +17,7 @@ import {
   Download,
   Bell,
   Settings,
+  X,
 } from 'lucide-react';
 import { getInitials } from '@/lib/format';
 import type { InventoryItem, InventoryStats, DashboardUser, Membership, DashboardStats } from '@/lib/data';
@@ -39,8 +41,33 @@ export default function InventoryClient({ user, membership, items: initialItems,
   const [lowStockOnly, setLowStockOnly] = useState(false);
   const [showNewItem, setShowNewItem] = useState(false);
   const [showEditItem, setShowEditItem] = useState<InventoryItem | null>(null);
+  const [adjustModalItem, setAdjustModalItem] = useState<InventoryItem | null>(null);
+  const [adjustType, setAdjustType] = useState<'add' | 'remove'>('add');
+  const [adjustQtyInput, setAdjustQtyInput] = useState(10);
+  const [adjustReason, setAdjustReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [isPending, startTransition] = useTransition();
+
+  const [lang, setLang] = useState<Language>('en');
+  useEffect(() => {
+    const saved = localStorage.getItem('lang') as Language;
+    if (saved && ['en', 'sq', 'mk'].includes(saved)) {
+      setLang(saved);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleStorage = () => {
+      const saved = localStorage.getItem('lang') as Language;
+      if (saved && ['en', 'sq', 'mk'].includes(saved)) {
+        setLang(saved);
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
+  const { t } = useLanguage(lang);
 
   const canManage = membership && ['owner', 'manager'].includes(membership.role);
 
@@ -127,6 +154,34 @@ export default function InventoryClient({ user, membership, items: initialItems,
           prev.map((i) => (i.id === itemId ? { ...i, currentStock: result.newStock! } : i))
         );
       }
+    });
+  }
+
+  async function handleBatchAdjustStock(e: React.FormEvent) {
+    e.preventDefault();
+    if (!adjustModalItem) return;
+    const delta = adjustType === 'add' ? adjustQtyInput : -adjustQtyInput;
+    if (adjustType === 'remove' && adjustQtyInput > adjustModalItem.currentStock) {
+      alert(`Cannot issue ${adjustQtyInput} ${adjustModalItem.unit}. Only ${adjustModalItem.currentStock} ${adjustModalItem.unit} currently in stock.`);
+      return;
+    }
+
+    setBusy(true);
+    startTransition(async () => {
+      const result = await adjustStockAction(adjustModalItem.id, delta);
+      setBusy(false);
+      if (result.error) {
+        alert(result.error);
+        return;
+      }
+      if (result.newStock !== undefined) {
+        setItems((prev) =>
+          prev.map((i) => (i.id === adjustModalItem.id ? { ...i, currentStock: result.newStock! } : i))
+        );
+      }
+      setAdjustModalItem(null);
+      setAdjustReason('');
+      setAdjustQtyInput(10);
     });
   }
 
@@ -301,6 +356,32 @@ export default function InventoryClient({ user, membership, items: initialItems,
               />
               <kbd>⌘ K</kbd>
             </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <select
+                value={lang}
+                onChange={(e) => {
+                  const newLang = e.target.value as Language;
+                  setLang(newLang);
+                  localStorage.setItem('lang', newLang);
+                  window.dispatchEvent(new Event('storage'));
+                }}
+                style={{
+                  border: '1px solid #edf0f3',
+                  borderRadius: 6,
+                  padding: '5px 8px',
+                  fontSize: 12,
+                  background: '#fff',
+                  cursor: 'pointer',
+                  color: '#3a4150',
+                  fontWeight: 500,
+                  outline: 'none',
+                }}
+              >
+                <option value="en">EN</option>
+                <option value="sq">SQ</option>
+                <option value="mk">MK</option>
+              </select>
+            </div>
             <div className="filter-select">
               <Filter size={17} />
               <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
@@ -446,7 +527,19 @@ export default function InventoryClient({ user, membership, items: initialItems,
                         {status.label}
                       </span>
                       {canManage && (
-                        <div className="item-actions" style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', width: 120 }}>
+                        <div className="item-actions" style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', width: 140 }}>
+                          <button
+                            className="icon-btn"
+                            onClick={() => {
+                              setAdjustModalItem(item);
+                              setAdjustType('add');
+                              setAdjustQtyInput(10);
+                            }}
+                            title="Adjust / Restock Quantity"
+                            disabled={busy || isPending}
+                          >
+                            <Package size={15} />
+                          </button>
                           <button
                             className="icon-btn"
                             onClick={() => handleAdjustStock(item.id, -1)}
@@ -708,6 +801,101 @@ export default function InventoryClient({ user, membership, items: initialItems,
                 </button>
               </div>
               <style>{`.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+            </form>
+          </div>
+        )}
+
+        {/* Batch Adjust Stock Modal */}
+        {adjustModalItem && (
+          <div className="modal-backdrop" onClick={() => setAdjustModalItem(null)}>
+            <form className="modal" onSubmit={handleBatchAdjustStock} onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <div>
+                  <p className="eyebrow">Inventory Stock Movement</p>
+                  <h2>Adjust Stock: {adjustModalItem.name}</h2>
+                </div>
+                <button type="button" className="modal-close" onClick={() => setAdjustModalItem(null)} disabled={busy || isPending}>
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div style={{ background: '#f8f9fe', border: '1px solid #edf0f4', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+                <span style={{ fontSize: 11, color: '#8f97a5' }}>
+                  Current Stock: <strong style={{ color: '#202635' }}>{adjustModalItem.currentStock} {adjustModalItem.unit}</strong>
+                  {adjustModalItem.warehouse && ` (${adjustModalItem.warehouse})`}
+                </span>
+              </div>
+
+              <div style={{ display: 'grid', gap: 16 }}>
+                <label>
+                  Movement Direction
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => setAdjustType('add')}
+                      style={{
+                        flex: 1,
+                        padding: '8px 12px',
+                        borderRadius: 6,
+                        border: '1px solid #e0e3e9',
+                        background: adjustType === 'add' ? '#eaf7f0' : '#fff',
+                        color: adjustType === 'add' ? '#166534' : '#313947',
+                        fontWeight: 600,
+                        fontSize: 12,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      ➕ Receive / Add (+)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAdjustType('remove')}
+                      style={{
+                        flex: 1,
+                        padding: '8px 12px',
+                        borderRadius: 6,
+                        border: '1px solid #e0e3e9',
+                        background: adjustType === 'remove' ? '#fff1f0' : '#fff',
+                        color: adjustType === 'remove' ? '#991b1b' : '#313947',
+                        fontWeight: 600,
+                        fontSize: 12,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      ➖ Issue / Deduct (-)
+                    </button>
+                  </div>
+                </label>
+
+                <label>
+                  Quantity ({adjustModalItem.unit})
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    value={adjustQtyInput}
+                    onChange={(e) => setAdjustQtyInput(Number(e.target.value) || 1)}
+                  />
+                </label>
+
+                <label>
+                  Reason / Reference Notes (optional)
+                  <input
+                    placeholder="e.g. Delivered to Sector 3 or Supplier top-up"
+                    value={adjustReason}
+                    onChange={(e) => setAdjustReason(e.target.value)}
+                  />
+                </label>
+              </div>
+
+              <div className="modal-actions" style={{ marginTop: 24 }}>
+                <button type="button" className="secondary" onClick={() => setAdjustModalItem(null)} disabled={busy || isPending}>
+                  Cancel
+                </button>
+                <button className="primary" type="submit" disabled={busy || isPending}>
+                  {busy || isPending ? <Loader2 size={16} className="spin" /> : <Package size={16} />} Confirm Adjustment
+                </button>
+              </div>
             </form>
           </div>
         )}

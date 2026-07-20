@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import WorkerDashboard from './WorkerDashboard';
 import {
   ArrowUpRight,
   Bell,
@@ -27,6 +28,7 @@ import {
   Trash2,
   Edit,
   FolderOpen,
+  HardHat,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { slugify } from '@/lib/format';
@@ -37,6 +39,8 @@ import type {
   Membership,
   ProjectView,
   TaskView,
+  AuditLogView,
+  FinancialSummary,
 } from '@/lib/data';
 
 type DashboardProps = {
@@ -45,6 +49,8 @@ type DashboardProps = {
   projects: ProjectView[];
   tasks: TaskView[];
   stats: DashboardStats;
+  auditLogs?: AuditLogView[];
+  financialSummary?: FinancialSummary;
   greeting: string;
   todayLabel: string;
 };
@@ -97,6 +103,8 @@ export default function Dashboard({
   projects,
   tasks,
   stats,
+  auditLogs,
+  financialSummary,
   greeting,
   todayLabel,
 }: DashboardProps) {
@@ -124,6 +132,24 @@ export default function Dashboard({
   const [dark, setDark] = useState(false);
   const [mobile, setMobile] = useState(false);
   const [query, setQuery] = useState('');
+
+  // Role View switching (Manager View vs Field Worker View)
+  const isEmployeeRole = membership?.role === 'employee';
+  const [activeRole, setActiveRole] = useState<'manager' | 'worker'>('manager');
+
+  useEffect(() => {
+    const savedRole = localStorage.getItem('constructos_view_role') as 'manager' | 'worker' | null;
+    if (savedRole) {
+      setActiveRole(savedRole);
+    } else if (isEmployeeRole) {
+      setActiveRole('worker');
+    }
+  }, [isEmployeeRole]);
+
+  function handleSwitchRole(role: 'manager' | 'worker') {
+    setActiveRole(role);
+    localStorage.setItem('constructos_view_role', role);
+  }
 
   const [projectItems, setProjectItems] = useState<ProjectView[]>(projects);
   const [taskItems, setTaskItems] = useState<TaskView[]>(tasks);
@@ -291,6 +317,23 @@ export default function Dashboard({
     router.refresh();
   }
 
+  if (activeRole === 'worker') {
+    return (
+      <WorkerDashboard
+        user={user}
+        membership={membership}
+        projects={projectItems}
+        tasks={taskItems}
+        stats={stats}
+        auditLogs={auditLogs}
+        greeting={greeting}
+        todayLabel={todayLabel}
+        onSwitchRole={handleSwitchRole}
+        currentRole={activeRole}
+      />
+    );
+  }
+
   return (
     <div className={dark ? 'app dark' : 'app'}>
       <aside className={mobile ? 'sidebar open' : 'sidebar'}>
@@ -411,6 +454,14 @@ export default function Dashboard({
               {dark ? <Sun size={18} /> : <Moon size={18} />}
             </button>
             <button
+              className="secondary"
+              onClick={() => handleSwitchRole('worker')}
+              style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px' }}
+              title="Switch to Field Worker View"
+            >
+              <HardHat size={15} style={{ color: '#f59e0b' }} /> Worker View
+            </button>
+            <button
               className="icon-btn notification"
               onClick={() => window.dispatchEvent(new CustomEvent('open-notifications'))}
               title="View notifications"
@@ -470,30 +521,12 @@ export default function Dashboard({
                   style={{ cursor: 'pointer' }}
                 >
                   <div className="stat-top">
-                    <span>{t('committedBudget')}</span>
+                    <span>Payments Collected</span>
                     <div className="stat-icon green">€</div>
                   </div>
-                  <strong>{stats.committedBudget}</strong>
+                  <strong suppressHydrationWarning>€{(financialSummary?.totalCollected ?? 0).toLocaleString()}</strong>
                   <p>
-                    <em>Total across active projects</em>
-                  </p>
-                </div>
-                <div
-                  className="stat-card"
-                  onClick={() => setShowAllTasksModal(true)}
-                  style={{ cursor: 'pointer' }}
-                >
-                  <div className="stat-top">
-                    <span>{t('openTasks')}</span>
-                    <div className="stat-icon orange">
-                      <Clock3 size={18} />
-                    </div>
-                  </div>
-                  <strong>{stats.openTasks}</strong>
-                  <p>
-                    <span className={stats.openTasks ? 'attention' : 'up'}>
-                      {stats.openTasks ? 'Needs attention' : 'All clear'}
-                    </span>
+                    <span className="up">Of €{(financialSummary?.totalRevenue ?? 0).toLocaleString()} contracted</span>
                   </p>
                 </div>
                 <div
@@ -502,19 +535,66 @@ export default function Dashboard({
                   style={{ cursor: 'pointer' }}
                 >
                   <div className="stat-top">
-                    <span>{t('lowStockItems')}</span>
-                    <div className="stat-icon red">
+                    <span>Incurred Operational Costs</span>
+                    <div className="stat-icon orange">
+                      <Clock3 size={18} />
+                    </div>
+                  </div>
+                  <strong suppressHydrationWarning>€{(financialSummary?.totalIncurredCosts ?? 0).toLocaleString()}</strong>
+                  <p>
+                    <em>Materials + Labor + Overheads</em>
+                  </p>
+                </div>
+                <div
+                  className="stat-card"
+                  style={{ cursor: 'pointer' }}
+                >
+                  <div className="stat-top">
+                    <span>Net Margin</span>
+                    <div className="stat-icon green">
                       <Package size={18} />
                     </div>
                   </div>
-                  <strong>{stats.lowStock}</strong>
+                  <strong suppressHydrationWarning>€{(financialSummary?.netProfit ?? 0).toLocaleString()}</strong>
                   <p>
-                    <span className={stats.lowStock ? 'attention' : 'up'}>
-                      {stats.lowStock ? 'Needs attention' : 'Stocked'}
-                    </span>
+                    <span className="up">{financialSummary?.profitMarginPercent ?? 0}% Projected Return</span>
                   </p>
                 </div>
               </section>
+
+              <div className="panel" style={{ marginBottom: 24 }}>
+                <div className="panel-head">
+                  <div>
+                    <h2>Workspace Financial Performance</h2>
+                    <p>Accurate live breakdown considering team labor, assigned inventory, and supplier purchases</p>
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+                  <div style={{ background: '#f8f9fe', border: '1px solid #edf0f4', padding: 16, borderRadius: 8 }}>
+                    <span style={{ fontSize: 11, textTransform: 'uppercase', color: '#8f97a5', fontWeight: 600 }}>Allocated Site Materials</span>
+                    <strong style={{ display: 'block', fontSize: 20, color: '#1e2433', marginTop: 4 }} suppressHydrationWarning>
+                      €{(financialSummary?.materialCosts ?? 0).toLocaleString()}
+                    </strong>
+                    <small style={{ color: '#68707d', fontSize: 11, display: 'block', marginTop: 4 }}>Deducted from stock & allocated to active sites</small>
+                  </div>
+
+                  <div style={{ background: '#f8f9fe', border: '1px solid #edf0f4', padding: 16, borderRadius: 8 }}>
+                    <span style={{ fontSize: 11, textTransform: 'uppercase', color: '#8f97a5', fontWeight: 600 }}>Estimated Site Labor</span>
+                    <strong style={{ display: 'block', fontSize: 20, color: '#1e2433', marginTop: 4 }} suppressHydrationWarning>
+                      €{(financialSummary?.laborCosts ?? 0).toLocaleString()}
+                    </strong>
+                    <small style={{ color: '#68707d', fontSize: 11, display: 'block', marginTop: 4 }}>Calculated from active team member hourly rates</small>
+                  </div>
+
+                  <div style={{ background: '#f8f9fe', border: '1px solid #edf0f4', padding: 16, borderRadius: 8 }}>
+                    <span style={{ fontSize: 11, textTransform: 'uppercase', color: '#8f97a5', fontWeight: 600 }}>Outstanding Client Receivables</span>
+                    <strong style={{ display: 'block', fontSize: 20, color: '#d97706', marginTop: 4 }} suppressHydrationWarning>
+                      €{(financialSummary?.outstandingBalance ?? 0).toLocaleString()}
+                    </strong>
+                    <small style={{ color: '#68707d', fontSize: 11, display: 'block', marginTop: 4 }}>Pending client payment milestones</small>
+                  </div>
+                </div>
+              </div>
 
               <div className="dashboard-grid">
                 <section className="panel projects">
@@ -635,14 +715,26 @@ export default function Dashboard({
                       View all <ArrowUpRight size={15} />
                     </button>
                   </div>
-                  <div className="activity-row">
-                    <div className="avatar purple">{user.initials}</div>
-                    <p>
-                      <strong>{user.fullName}</strong> set up the{' '}
-                      <b>{membership.companyName}</b> workspace
-                      <small>{todayLabel}</small>
-                    </p>
-                  </div>
+                  {auditLogs && auditLogs.length > 0 ? (
+                    auditLogs.slice(0, 3).map((log) => (
+                      <div className="activity-row" key={log.id}>
+                        <div className="avatar purple">{log.actorInitials}</div>
+                        <p>
+                          <strong>{log.actorName}</strong> {log.action}
+                          <small>{log.timeAgo}</small>
+                        </p>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="activity-row">
+                      <div className="avatar purple">{user.initials}</div>
+                      <p>
+                        <strong>{user.fullName}</strong> set up the{' '}
+                        <b>{membership.companyName}</b> workspace
+                        <small>{todayLabel}</small>
+                      </p>
+                    </div>
+                  )}
                 </section>
                 <section className="tip">
                   <div className="tip-icon">✦</div>
@@ -1007,31 +1099,25 @@ export default function Dashboard({
               </div>
 
               <div style={{ overflowY: 'auto', flex: 1, display: 'grid', gap: 12, paddingRight: 4 }}>
-                <div className="activity-row" style={{ padding: '10px 0' }}>
-                  <div className="avatar purple">{user.initials}</div>
-                  <p>
-                    <strong>{user.fullName}</strong> set up the <b>{membership?.companyName ?? 'your workspace'}</b> workspace
-                    <small>{todayLabel}</small>
-                  </p>
-                </div>
-                {projectItems.map((p) => (
-                  <div className="activity-row" key={p.id} style={{ padding: '10px 0' }}>
-                    <div className="avatar blue">PR</div>
+                {auditLogs && auditLogs.length > 0 ? (
+                  auditLogs.map((log) => (
+                    <div className="activity-row" key={log.id} style={{ padding: '10px 0' }}>
+                      <div className="avatar purple">{log.actorInitials}</div>
+                      <p>
+                        <strong>{log.actorName}</strong> {log.action}
+                        <small>{log.timeAgo}</small>
+                      </p>
+                    </div>
+                  ))
+                ) : (
+                  <div className="activity-row" style={{ padding: '10px 0' }}>
+                    <div className="avatar purple">{user.initials}</div>
                     <p>
-                      <strong>{user.fullName}</strong> created / updated project <b>{p.name}</b>
-                      <small>Recent</small>
+                      <strong>{user.fullName}</strong> set up the <b>{membership?.companyName ?? 'your workspace'}</b> workspace
+                      <small>{todayLabel}</small>
                     </p>
                   </div>
-                ))}
-                {taskItems.slice(0, 3).map((t) => (
-                  <div className="activity-row" key={t.id} style={{ padding: '10px 0' }}>
-                    <div className="avatar green">TK</div>
-                    <p>
-                      <strong>Team member</strong> {t.done ? 'completed' : 'added'} task <b>{t.text}</b> ({t.project})
-                      <small>Recent</small>
-                    </p>
-                  </div>
-                ))}
+                )}
               </div>
 
               <div className="modal-actions" style={{ marginTop: 20 }}>

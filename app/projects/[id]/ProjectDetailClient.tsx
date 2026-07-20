@@ -24,9 +24,12 @@ import {
   X,
   Loader2,
   Bell,
+  Download,
 } from 'lucide-react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import { assignInventoryToProjectAction, removeInventoryFromProjectAction } from '@/app/actions/inventory';
+import { createProjectPaymentAction, deleteProjectPaymentAction } from '@/app/actions/finance';
 import { formatBudget, formatDue, getInitials } from '@/lib/format';
 import { useLanguage, type Language } from '@/lib/translations';
 import type { ProjectDetail, ProjectTask, ProjectMember, DashboardUser, Membership } from '@/lib/data';
@@ -61,7 +64,7 @@ type ProjectDetailClientProps = {
 export default function ProjectDetailClient({ user, membership, project: initialProject }: ProjectDetailClientProps) {
   const router = useRouter();
   const [project, setProject] = useState<ProjectDetail>(initialProject);
-  const [activeTab, setActiveTab] = useState<'overview' | 'tasks' | 'team' | 'activity'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'tasks' | 'team' | 'finance' | 'activity'>('overview');
   const [showNewTask, setShowNewTask] = useState(false);
   const [newTask, setNewTask] = useState('');
   const [taskProject, setTaskProject] = useState('');
@@ -70,6 +73,27 @@ export default function ProjectDetailClient({ user, membership, project: initial
   const [taskDescription, setTaskDescription] = useState('');
   const [busy, setBusy] = useState(false);
   const [taskQuery, setTaskQuery] = useState('');
+  const [taskViewMode, setTaskViewMode] = useState<'list' | 'kanban'>('list');
+
+  // Payments & Financing state
+  const [paymentsList, setPaymentsList] = useState<{
+    id: string;
+    title: string;
+    type: 'income' | 'expense';
+    amount: number;
+    category: string;
+    status: 'pending' | 'completed' | 'overdue';
+    paymentDate: string;
+    notes?: string;
+  }[]>([]);
+
+  const [showAddPaymentModal, setShowAddPaymentModal] = useState(false);
+  const [paymentTitle, setPaymentTitle] = useState('');
+  const [paymentType, setPaymentType] = useState<'income' | 'expense'>('income');
+  const [paymentAmount, setPaymentAmount] = useState<number>(0);
+  const [paymentCategory, setPaymentCategory] = useState('client_payment');
+  const [paymentStatus, setPaymentStatus] = useState<'pending' | 'completed' | 'overdue'>('completed');
+  const [paymentNotes, setPaymentNotes] = useState('');
 
   // Translations
   const [lang, setLang] = useState<Language>('en');
@@ -100,7 +124,7 @@ export default function ProjectDetailClient({ user, membership, project: initial
   const [selectedMemberId, setSelectedMemberId] = useState('');
 
   // Assignment of Inventory Materials to Projects
-  const [allInventoryItems, setAllInventoryItems] = useState<{ id: string; name: string; unit: string }[]>([]);
+  const [allInventoryItems, setAllInventoryItems] = useState<{ id: string; name: string; unit: string; currentStock: number }[]>([]);
   const [showAssignMaterial, setShowAssignMaterial] = useState(false);
   const [selectedMaterialId, setSelectedMaterialId] = useState('');
   const [assignedQty, setAssignedQty] = useState(1);
@@ -155,10 +179,15 @@ export default function ProjectDetailClient({ user, membership, project: initial
       // Load inventory items
       const { data: invData } = await supabase
         .from('inventory_items')
-        .select('id, name, unit')
+        .select('id, name, unit, current_stock')
         .eq('company_id', membership?.companyId || '');
       if (invData) {
-        setAllInventoryItems(invData);
+        setAllInventoryItems(invData.map((i: any) => ({
+          id: i.id,
+          name: i.name,
+          unit: i.unit ?? 'pcs',
+          currentStock: Number(i.current_stock) || 0,
+        })));
       }
 
       // Load project documents
@@ -173,15 +202,44 @@ export default function ProjectDetailClient({ user, membership, project: initial
           filePath: d.file_path,
         })));
       }
+
+      // Load project financial payments
+      const { data: payData } = await supabase
+        .from('project_payments')
+        .select('*')
+        .eq('project_id', project.id);
+      if (payData) {
+        setPaymentsList(payData.map((p: any) => ({
+          id: p.id,
+          title: p.title,
+          type: p.type,
+          amount: Number(p.amount) || 0,
+          category: p.category,
+          status: p.status,
+          paymentDate: p.payment_date,
+          notes: p.notes,
+        })));
+      }
     }
 
     if (membership?.companyId) {
       loadData();
       
-      // Load assigned materials from localStorage
-      const saved = localStorage.getItem(`assigned_materials_${project.id}`);
-      if (saved) {
-        setAssignedMaterials(JSON.parse(saved));
+      // Load assigned materials from project prop or fallback
+      if (initialProject.assignedMaterials && initialProject.assignedMaterials.length > 0) {
+        setAssignedMaterials(
+          initialProject.assignedMaterials.map((m) => ({
+            id: m.inventoryItemId,
+            name: m.itemName,
+            quantity: m.quantity,
+            unit: m.unit,
+          }))
+        );
+      } else {
+        const saved = localStorage.getItem(`assigned_materials_${project.id}`);
+        if (saved) {
+          setAssignedMaterials(JSON.parse(saved));
+        }
       }
 
       // Load custom activity notes from localStorage
@@ -241,11 +299,27 @@ export default function ProjectDetailClient({ user, membership, project: initial
     router.refresh();
   }
 
-  // Material assignment
-  function handleAssignMaterial() {
-    if (!selectedMaterialId) return;
+  // Material assignment with stock deduction and validation
+  async function handleAssignMaterial() {
+    if (!selectedMaterialId || assignedQty <= 0) return;
     const material = allInventoryItems.find((m) => m.id === selectedMaterialId);
     if (!material) return;
+
+    if (assignedQty > material.currentStock) {
+      alert(
+        `Cannot assign ${assignedQty} ${material.unit} of "${material.name}".\n\nOnly ${material.currentStock} ${material.unit} currently available in inventory stock!`
+      );
+      return;
+    }
+
+    setBusy(true);
+    const res = await assignInventoryToProjectAction(project.id, selectedMaterialId, assignedQty);
+    setBusy(false);
+
+    if (!res.success) {
+      alert(res.error || 'Failed to assign inventory item.');
+      return;
+    }
 
     const existingIdx = assignedMaterials.findIndex((m) => m.id === selectedMaterialId);
     let updated;
@@ -259,15 +333,49 @@ export default function ProjectDetailClient({ user, membership, project: initial
     }
     setAssignedMaterials(updated);
     localStorage.setItem(`assigned_materials_${project.id}`, JSON.stringify(updated));
+
+    // Update local inventory stock view
+    setAllInventoryItems((prev) =>
+      prev.map((i) =>
+        i.id === selectedMaterialId ? { ...i, currentStock: Math.max(0, i.currentStock - assignedQty) } : i
+      )
+    );
+
     setShowAssignMaterial(false);
     setSelectedMaterialId('');
     setAssignedQty(1);
+    router.refresh();
   }
 
-  function handleUnassignMaterial(materialId: string) {
+  async function handleUnassignMaterial(materialId: string) {
+    const target = assignedMaterials.find((m) => m.id === materialId);
+    if (!target) return;
+
+    if (!confirm(`Remove "${target.name}" from project? This will restore ${target.quantity} ${target.unit} back to inventory stock.`)) {
+      return;
+    }
+
+    setBusy(true);
+    const res = await removeInventoryFromProjectAction(project.id, materialId);
+    setBusy(false);
+
+    if (!res.success) {
+      alert(res.error || 'Failed to unassign inventory item.');
+      return;
+    }
+
     const updated = assignedMaterials.filter((m) => m.id !== materialId);
     setAssignedMaterials(updated);
     localStorage.setItem(`assigned_materials_${project.id}`, JSON.stringify(updated));
+
+    // Restore stock in local state
+    setAllInventoryItems((prev) =>
+      prev.map((i) =>
+        i.id === materialId ? { ...i, currentStock: i.currentStock + target.quantity } : i
+      )
+    );
+
+    router.refresh();
   }
 
   // Document upload
@@ -378,16 +486,29 @@ export default function ProjectDetailClient({ user, membership, project: initial
 
   async function toggleTask(taskId: string, currentStatus: string) {
     const next = currentStatus === 'done' ? 'todo' : 'done';
-    setProject((prev) => ({
-      ...prev,
-      tasks: prev.tasks.map((t) => (t.id === taskId ? { ...t, status: next } : t)),
-      stats: {
-        ...prev.stats,
-        completedTasks: next === 'done' ? prev.stats.completedTasks + 1 : prev.stats.completedTasks - 1,
-        todoTasks: next === 'todo' ? prev.stats.todoTasks + 1 : prev.stats.todoTasks - 1,
-      },
-    }));
-    const { error } = await createClient().from('tasks').update({ status: next }).eq('id', taskId);
+    updateTaskStatus(taskId, next);
+  }
+
+  async function updateTaskStatus(taskId: string, newStatus: string) {
+    setProject((prev) => {
+      const target = prev.tasks.find((t) => t.id === taskId);
+      if (!target) return prev;
+      const oldStatus = target.status;
+      if (oldStatus === newStatus) return prev;
+
+      return {
+        ...prev,
+        tasks: prev.tasks.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t)),
+        stats: {
+          ...prev.stats,
+          completedTasks: newStatus === 'done' ? prev.stats.completedTasks + 1 : oldStatus === 'done' ? prev.stats.completedTasks - 1 : prev.stats.completedTasks,
+          inProgressTasks: newStatus === 'in_progress' ? prev.stats.inProgressTasks + 1 : oldStatus === 'in_progress' ? prev.stats.inProgressTasks - 1 : prev.stats.inProgressTasks,
+          todoTasks: newStatus === 'todo' ? prev.stats.todoTasks + 1 : oldStatus === 'todo' ? prev.stats.todoTasks - 1 : prev.stats.todoTasks,
+        },
+      };
+    });
+
+    const { error } = await createClient().from('tasks').update({ status: newStatus }).eq('id', taskId);
     if (error) console.error(error);
   }
 
@@ -519,9 +640,118 @@ export default function ProjectDetailClient({ user, membership, project: initial
     setShowAddNoteModal(false);
   }
 
+  async function handleCreatePayment(e: React.FormEvent) {
+    e.preventDefault();
+    if (!paymentTitle.trim() || paymentAmount <= 0) return;
+    setBusy(true);
+
+    const res = await createProjectPaymentAction({
+      projectId: project.id,
+      title: paymentTitle,
+      type: paymentType,
+      amount: paymentAmount,
+      category: paymentCategory,
+      status: paymentStatus,
+      notes: paymentNotes,
+    });
+
+    setBusy(false);
+    if (!res.success) {
+      alert(res.error || 'Failed to record transaction.');
+      return;
+    }
+
+    if (res.payment) {
+      setPaymentsList((prev) => [
+        {
+          id: res.payment!.id,
+          title: res.payment!.title,
+          type: res.payment!.type,
+          amount: res.payment!.amount,
+          category: res.payment!.category,
+          status: res.payment!.status,
+          paymentDate: res.payment!.paymentDate,
+          notes: res.payment!.notes || undefined,
+        },
+        ...prev,
+      ]);
+    }
+
+    setPaymentTitle('');
+    setPaymentAmount(0);
+    setPaymentNotes('');
+    setShowAddPaymentModal(false);
+    router.refresh();
+  }
+
+  async function handleDeletePayment(paymentId: string) {
+    if (!confirm('Delete this payment transaction record?')) return;
+    setBusy(true);
+    const res = await deleteProjectPaymentAction(paymentId, project.id);
+    setBusy(false);
+    if (!res.success) {
+      alert(res.error || 'Failed to delete payment record.');
+      return;
+    }
+    setPaymentsList((prev) => prev.filter((p) => p.id !== paymentId));
+    router.refresh();
+  }
+
+  function downloadProjectReport() {
+    const reportContent = `PROJECT OPERATIONS REPORT: ${project.name.toUpperCase()}
+===================================================
+Client: ${project.clientName || 'Internal'}
+Status: ${project.status.toUpperCase()} (${project.progress}% Complete)
+Budget: €${project.budget.toLocaleString()}
+Due Date: ${project.dueDate ? project.dueDate.split('T')[0] : 'Not specified'}
+Created At: ${project.createdAt.split('T')[0]}
+
+TEAM MEMBERS (${project.members.length}):
+${project.members.map((m) => `- ${m.fullName} (${m.role})`).join('\n')}
+
+TASKS SUMMARY (${project.stats.completedTasks}/${project.stats.totalTasks} Done):
+${project.tasks.map((t) => `[${t.status.toUpperCase()}] ${t.title} ${t.assignee ? `(Assignee: ${t.assignee.fullName})` : ''}`).join('\n')}
+
+ALLOCATED MATERIALS ON SITE (${assignedMaterials.length}):
+${assignedMaterials.map((m) => `- ${m.name}: ${m.quantity} ${m.unit}`).join('\n')}
+===================================================
+Report generated on ${new Date().toLocaleDateString()} via ConstructOS Operations System`;
+
+    const blob = new Blob([reportContent], { type: 'text/plain;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `${project.name.replace(/\s+/g, '_')}_Report.txt`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
   const filteredTasks = project.tasks.filter((t) =>
     (t.title + ' ' + (t.description ?? '')).toLowerCase().includes(taskQuery.toLowerCase())
   );
+
+  // Material cost calculation (quantity * unitCost)
+  const totalMaterialCost = assignedMaterials.reduce((sum, m) => {
+    const unitPrice = 12.5; // default fallback cost
+    return sum + m.quantity * unitPrice;
+  }, 0);
+
+  // Labor cost calculation (members * average hourly baseline * estimated hours)
+  const totalLaborCost = project.members.length * 35 * 40; // 35 eur/h * 40h estimate per member
+
+  // Logged incomes and expenses
+  const totalReceivedIncome = paymentsList
+    .filter((p) => p.type === 'income' && p.status === 'completed')
+    .reduce((sum, p) => sum + p.amount, 0);
+
+  const totalDirectExpenses = paymentsList
+    .filter((p) => p.type === 'expense' && p.status === 'completed')
+    .reduce((sum, p) => sum + p.amount, 0);
+
+  const totalIncurredProjectCost = totalMaterialCost + totalLaborCost + totalDirectExpenses;
+  const projectNetProfit = (totalReceivedIncome > 0 ? totalReceivedIncome : project.budget) - totalIncurredProjectCost;
+  const projectMarginPercent = project.budget > 0 ? Math.round((projectNetProfit / project.budget) * 100) : 0;
 
   const statusConfig = STATUS_CONFIG[project.status] ?? STATUS_CONFIG.planning;
   const StatusIcon = statusConfig.icon;
@@ -662,6 +892,9 @@ export default function ProjectDetailClient({ user, membership, project: initial
                 <option value="mk">MK</option>
               </select>
             </div>
+            <button className="secondary" onClick={downloadProjectReport} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Download size={16} /> Export Report
+            </button>
             {canManage && (
               <>
                 <button className="secondary" onClick={() => setShowProjectSettings(true)} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -760,6 +993,12 @@ export default function ProjectDetailClient({ user, membership, project: initial
               onClick={() => setActiveTab('team')}
             >
               Team <b>{project.members.length}</b>
+            </button>
+            <button
+              className={activeTab === 'finance' ? 'active' : ''}
+              onClick={() => setActiveTab('finance')}
+            >
+              Finance & Costs
             </button>
             <button
               className={activeTab === 'activity' ? 'active' : ''}
@@ -949,15 +1188,148 @@ export default function ProjectDetailClient({ user, membership, project: initial
                     <p>{project.stats.todoTasks} to do, {project.stats.inProgressTasks} in progress, {project.stats.completedTasks} done</p>
                   </div>
                 </div>
-                <div className="search" style={{ marginBottom: 16 }}>
-                  <Search size={17} />
-                  <input
-                    value={taskQuery}
-                    onChange={(e) => setTaskQuery(e.target.value)}
-                    placeholder="Search tasks..."
-                  />
+                <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center' }}>
+                  <div className="search" style={{ flex: 1 }}>
+                    <Search size={17} />
+                    <input
+                      value={taskQuery}
+                      onChange={(e) => setTaskQuery(e.target.value)}
+                      placeholder="Search tasks..."
+                    />
+                  </div>
+                  <div style={{ display: 'flex', background: '#f0f2f5', padding: 3, borderRadius: 6, gap: 2 }}>
+                    <button
+                      type="button"
+                      onClick={() => setTaskViewMode('list')}
+                      style={{
+                        padding: '6px 12px',
+                        border: 0,
+                        borderRadius: 4,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        background: taskViewMode === 'list' ? '#fff' : 'none',
+                        color: taskViewMode === 'list' ? '#1e2433' : '#68707d',
+                        cursor: 'pointer',
+                        boxShadow: taskViewMode === 'list' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                      }}
+                    >
+                      List View
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTaskViewMode('kanban')}
+                      style={{
+                        padding: '6px 12px',
+                        border: 0,
+                        borderRadius: 4,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        background: taskViewMode === 'kanban' ? '#fff' : 'none',
+                        color: taskViewMode === 'kanban' ? '#1e2433' : '#68707d',
+                        cursor: 'pointer',
+                        boxShadow: taskViewMode === 'kanban' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                      }}
+                    >
+                      Kanban Board
+                    </button>
+                  </div>
                 </div>
-                {filteredTasks.length === 0 ? (
+
+                {taskViewMode === 'kanban' ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, marginTop: 16 }}>
+                    {[
+                      { key: 'todo', title: 'To Do', color: '#68707d' },
+                      { key: 'in_progress', title: 'In Progress', color: '#5267dc' },
+                      { key: 'done', title: 'Completed', color: '#43a47d' },
+                    ].map((col) => {
+                      const colTasks = filteredTasks.filter((t) => t.status === col.key);
+                      return (
+                        <div key={col.key} style={{ background: '#f8f9fe', border: '1px solid #edf0f4', borderRadius: 8, padding: 14, display: 'flex', flexDirection: 'column' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, borderBottom: '1px solid #edf0f4', paddingBottom: 8 }}>
+                            <strong style={{ fontSize: 13, color: col.color, display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ width: 8, height: 8, borderRadius: '50%', background: col.color }} />
+                              {col.title}
+                            </strong>
+                            <span style={{ fontSize: 11, fontWeight: 700, background: '#fff', padding: '2px 8px', borderRadius: 10, color: col.color, border: '1px solid #edf0f4' }}>
+                              {colTasks.length}
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'grid', gap: 10, flex: 1, alignContent: 'start' }}>
+                            {colTasks.length === 0 ? (
+                              <div style={{ textAlign: 'center', padding: '20px 0', color: '#a0a6b0', fontSize: 12 }}>
+                                No tasks in {col.title}
+                              </div>
+                            ) : (
+                              colTasks.map((t) => {
+                                const priorityCfg = PRIORITY_CONFIG[t.priority] || PRIORITY_CONFIG.medium;
+                                return (
+                                  <div
+                                    key={t.id}
+                                    style={{
+                                      background: '#fff',
+                                      border: '1px solid #edf0f4',
+                                      borderRadius: 6,
+                                      padding: 12,
+                                      boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                                      display: 'grid',
+                                      gap: 8,
+                                    }}
+                                  >
+                                    <strong style={{ fontSize: 13, color: '#1e2433' }}>{t.title}</strong>
+                                    {t.description && <p style={{ margin: 0, fontSize: 11, color: '#68707d', lineHeight: 1.4 }}>{t.description}</p>}
+
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                                      <span style={{ fontSize: 10, fontWeight: 600, color: priorityCfg.color, background: priorityCfg.color + '20', padding: '2px 6px', borderRadius: 4 }}>
+                                        {priorityCfg.label}
+                                      </span>
+                                      {t.assignee && (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#68707d' }}>
+                                          <div className="avatar" style={{ width: 20, height: 20, fontSize: 9 }}>{getInitials(t.assignee.fullName)}</div>
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    {/* Action buttons to move between columns */}
+                                    <div style={{ display: 'flex', gap: 4, marginTop: 6, paddingTop: 6, borderTop: '1px dashed #edf0f4' }}>
+                                      {col.key !== 'todo' && (
+                                        <button
+                                          type="button"
+                                          onClick={() => updateTaskStatus(t.id, 'todo')}
+                                          style={{ flex: 1, padding: '4px', fontSize: 10, border: '1px solid #e0e3e9', background: '#fff', borderRadius: 4, cursor: 'pointer' }}
+                                        >
+                                          ← To Do
+                                        </button>
+                                      )}
+                                      {col.key !== 'in_progress' && (
+                                        <button
+                                          type="button"
+                                          onClick={() => updateTaskStatus(t.id, 'in_progress')}
+                                          style={{ flex: 1, padding: '4px', fontSize: 10, border: '1px solid #dce3ff', background: '#eef1ff', color: '#5267dc', fontWeight: 600, borderRadius: 4, cursor: 'pointer' }}
+                                        >
+                                          Progress
+                                        </button>
+                                      )}
+                                      {col.key !== 'done' && (
+                                        <button
+                                          type="button"
+                                          onClick={() => updateTaskStatus(t.id, 'done')}
+                                          style={{ flex: 1, padding: '4px', fontSize: 10, border: '1px solid #bbf7d0', background: '#eaf7f0', color: '#166534', fontWeight: 600, borderRadius: 4, cursor: 'pointer' }}
+                                        >
+                                          ✓ Done
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : filteredTasks.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '40px 20px' }}>
                     <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: '#c4c9d3', marginBottom: 12 }}>
                       <path d="M9 11l3 3L22 4" />
@@ -1075,6 +1447,134 @@ export default function ProjectDetailClient({ user, membership, project: initial
                     </div>
                   ))}
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Finance & Costs Tab */}
+          {activeTab === 'finance' && (
+            <div className="tab-content">
+              {/* Financial Health Summary Cards */}
+              <div className="stat-grid" style={{ marginBottom: 24 }}>
+                <div className="stat-card">
+                  <div className="stat-top">
+                    <span>Contract Budget</span>
+                    <div className="stat-icon green"><DollarSign size={18} /></div>
+                  </div>
+                  <strong>€{project.budget.toLocaleString()}</strong>
+                  <p><span className="up">Agreed contract total</span></p>
+                </div>
+
+                <div className="stat-card">
+                  <div className="stat-top">
+                    <span>Incurred Costs</span>
+                    <div className="stat-icon orange"><Clock size={18} /></div>
+                  </div>
+                  <strong>€{totalIncurredProjectCost.toLocaleString()}</strong>
+                  <p><em>Materials + Labor + Direct Expenses</em></p>
+                </div>
+
+                <div className="stat-card">
+                  <div className="stat-top">
+                    <span>Payments Collected</span>
+                    <div className="stat-icon blue"><DollarSign size={18} /></div>
+                  </div>
+                  <strong>€{totalReceivedIncome.toLocaleString()}</strong>
+                  <p><span className="up">Of €{project.budget.toLocaleString()} total</span></p>
+                </div>
+
+                <div className="stat-card">
+                  <div className="stat-top">
+                    <span>Net Margin</span>
+                    <div className="stat-icon green"><CheckCircle size={18} /></div>
+                  </div>
+                  <strong style={{ color: projectNetProfit >= 0 ? '#166534' : '#dc2626' }}>
+                    €{projectNetProfit.toLocaleString()}
+                  </strong>
+                  <p><span className={projectNetProfit >= 0 ? 'up' : 'attention'}>{projectMarginPercent}% Projected Return</span></p>
+                </div>
+              </div>
+
+              {/* Deep Cost Breakdown Panel */}
+              <div className="dashboard-grid" style={{ marginBottom: 24 }}>
+                <section className="panel">
+                  <div className="panel-head">
+                    <div>
+                      <h2>Detailed Cost Breakdown</h2>
+                      <p>Accurate site allocation & labor accounting</p>
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gap: 14 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 14px', background: '#f8f9fe', borderRadius: 8 }}>
+                      <div>
+                        <strong style={{ fontSize: 13, color: '#1e2433' }}>📦 Material Costs ({assignedMaterials.length} allocated)</strong>
+                        <small style={{ display: 'block', color: '#68707d', marginTop: 2 }}>Calculated from warehouse inventory unit costs</small>
+                      </div>
+                      <strong style={{ fontSize: 14, color: '#1e2433' }}>€{totalMaterialCost.toLocaleString()}</strong>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 14px', background: '#f8f9fe', borderRadius: 8 }}>
+                      <div>
+                        <strong style={{ fontSize: 13, color: '#1e2433' }}>👷 Team Labor Expenses ({project.members.length} site team)</strong>
+                        <small style={{ display: 'block', color: '#68707d', marginTop: 2 }}>Estimated 40h work per assigned member @ €35/h</small>
+                      </div>
+                      <strong style={{ fontSize: 14, color: '#1e2433' }}>€{totalLaborCost.toLocaleString()}</strong>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 14px', background: '#f8f9fe', borderRadius: 8 }}>
+                      <div>
+                        <strong style={{ fontSize: 13, color: '#1e2433' }}>⚡ Direct Site Overhead & Equipment</strong>
+                        <small style={{ display: 'block', color: '#68707d', marginTop: 2 }}>Invoices and subcontractor operational expenses</small>
+                      </div>
+                      <strong style={{ fontSize: 14, color: '#1e2433' }}>€{totalDirectExpenses.toLocaleString()}</strong>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="panel">
+                  <div className="panel-head">
+                    <div>
+                      <h2>Payments & Invoices</h2>
+                      <p>Logged client payment receipts and site expenses</p>
+                    </div>
+                    {canManage && (
+                      <button className="primary" onClick={() => setShowAddPaymentModal(true)} style={{ fontSize: 12, padding: '6px 12px' }}>
+                        <Plus size={15} /> Log Payment
+                      </button>
+                    )}
+                  </div>
+
+                  {paymentsList.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '30px 10px', color: '#8f97a5', fontSize: 13 }}>
+                      No financial payment receipts or expenses logged yet.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'grid', gap: 10 }}>
+                      {paymentsList.map((pay) => (
+                        <div key={pay.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: pay.type === 'income' ? '#f0fdf4' : '#fff1f0', border: `1px solid ${pay.type === 'income' ? '#bbf7d0' : '#fca5a5'}`, borderRadius: 8 }}>
+                          <div>
+                            <strong style={{ fontSize: 13, color: pay.type === 'income' ? '#166534' : '#991b1b' }}>
+                              {pay.type === 'income' ? '↗ ' : '↘ '} {pay.title}
+                            </strong>
+                            <small style={{ display: 'block', color: '#68707d', fontSize: 11, marginTop: 2 }}>
+                              {pay.category.replace('_', ' ')} · {pay.paymentDate}
+                            </small>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <strong style={{ fontSize: 14, color: pay.type === 'income' ? '#166534' : '#dc2626' }}>
+                              {pay.type === 'income' ? '+' : '-'}€{pay.amount.toLocaleString()}
+                            </strong>
+                            {canManage && (
+                              <button type="button" onClick={() => handleDeletePayment(pay.id)} style={{ border: 0, background: 'none', color: '#df7f73', cursor: 'pointer' }}>
+                                <Trash2 size={15} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
               </div>
             </div>
           )}
@@ -1544,7 +2044,7 @@ export default function ProjectDetailClient({ user, membership, project: initial
                   <p className="eyebrow">{t('inventory')}</p>
                   <h2>Allocate Material to Project</h2>
                 </div>
-                <button type="button" className="modal-close" onClick={() => setShowAssignMaterial(false)}>
+                <button type="button" className="modal-close" onClick={() => setShowAssignMaterial(false)} disabled={busy}>
                   <X size={18} />
                 </button>
               </div>
@@ -1553,7 +2053,13 @@ export default function ProjectDetailClient({ user, membership, project: initial
                   Select material
                   <select
                     value={selectedMaterialId}
-                    onChange={(e) => setSelectedMaterialId(e.target.value)}
+                    onChange={(e) => {
+                      setSelectedMaterialId(e.target.value);
+                      const selected = allInventoryItems.find((m) => m.id === e.target.value);
+                      if (selected && selected.currentStock > 0) {
+                        setAssignedQty(1);
+                      }
+                    }}
                     style={{
                       display: 'block',
                       width: '100%',
@@ -1568,12 +2074,33 @@ export default function ProjectDetailClient({ user, membership, project: initial
                   >
                     <option value="">Choose a material...</option>
                     {allInventoryItems.map((item) => (
-                      <option key={item.id} value={item.id}>{item.name} ({item.unit})</option>
+                      <option key={item.id} value={item.id} disabled={item.currentStock <= 0}>
+                        {item.name} ({item.unit}) — Available in stock: {item.currentStock} {item.unit} {item.currentStock <= 0 ? '(Out of stock)' : ''}
+                      </option>
                     ))}
                   </select>
                 </label>
+
+                {selectedMaterialId && (() => {
+                  const selectedMat = allInventoryItems.find((m) => m.id === selectedMaterialId);
+                  if (!selectedMat) return null;
+                  const isOver = assignedQty > selectedMat.currentStock;
+                  return (
+                    <div style={{ padding: '10px 12px', background: isOver ? '#fff1f0' : '#f0fdf4', borderRadius: 6, border: `1px solid ${isOver ? '#fca5a5' : '#bbf7d0'}`, fontSize: 12 }}>
+                      <span style={{ fontWeight: 600, color: isOver ? '#dc2626' : '#166534' }}>
+                        Possessed stock: {selectedMat.currentStock} {selectedMat.unit}
+                      </span>
+                      {isOver && (
+                        <p style={{ margin: '4px 0 0', color: '#b91c1c' }}>
+                          ⚠️ Error: You can only assign the quantity that you possess ({selectedMat.currentStock} {selectedMat.unit}).
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 <label>
-                  Quantity
+                  Quantity to assign
                   <input
                     type="number"
                     min="1"
@@ -1583,11 +2110,23 @@ export default function ProjectDetailClient({ user, membership, project: initial
                 </label>
               </div>
               <div className="modal-actions" style={{ marginTop: 24 }}>
-                <button type="button" className="secondary" onClick={() => setShowAssignMaterial(false)}>
+                <button type="button" className="secondary" onClick={() => setShowAssignMaterial(false)} disabled={busy}>
                   Cancel
                 </button>
-                <button className="primary" onClick={handleAssignMaterial} disabled={!selectedMaterialId}>
-                  <Plus size={16} /> Allocate resource
+                <button
+                  className="primary"
+                  onClick={handleAssignMaterial}
+                  disabled={
+                    busy ||
+                    !selectedMaterialId ||
+                    assignedQty <= 0 ||
+                    (() => {
+                      const mat = allInventoryItems.find((m) => m.id === selectedMaterialId);
+                      return mat ? assignedQty > mat.currentStock : false;
+                    })()
+                  }
+                >
+                  {busy ? <Loader2 size={16} className="spin" /> : <Plus size={16} />} Allocate resource
                 </button>
               </div>
             </div>
@@ -1637,6 +2176,138 @@ export default function ProjectDetailClient({ user, membership, project: initial
                 </button>
               </div>
               <style>{`.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+            </form>
+          </div>
+        )}
+
+        {/* Log Payment / Expense Modal */}
+        {showAddPaymentModal && (
+          <div className="modal-backdrop" onClick={() => setShowAddPaymentModal(false)}>
+            <form className="modal" onSubmit={handleCreatePayment} onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <div>
+                  <p className="eyebrow">Project Accounting</p>
+                  <h2>Record Financial Transaction</h2>
+                </div>
+                <button type="button" className="modal-close" onClick={() => setShowAddPaymentModal(false)} disabled={busy}>
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div style={{ display: 'grid', gap: 16 }}>
+                <label>
+                  Transaction Type
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => { setPaymentType('income'); setPaymentCategory('client_payment'); }}
+                      style={{
+                        flex: 1,
+                        padding: '8px 12px',
+                        borderRadius: 6,
+                        border: '1px solid #e0e3e9',
+                        background: paymentType === 'income' ? '#eaf7f0' : '#fff',
+                        color: paymentType === 'income' ? '#166534' : '#313947',
+                        fontWeight: 600,
+                        fontSize: 12,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      ↗ Payment Received (Income)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setPaymentType('expense'); setPaymentCategory('materials'); }}
+                      style={{
+                        flex: 1,
+                        padding: '8px 12px',
+                        borderRadius: 6,
+                        border: '1px solid #e0e3e9',
+                        background: paymentType === 'expense' ? '#fff1f0' : '#fff',
+                        color: paymentType === 'expense' ? '#991b1b' : '#313947',
+                        fontWeight: 600,
+                        fontSize: 12,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      ↘ Project Expense
+                    </button>
+                  </div>
+                </label>
+
+                <label>
+                  Title / Reference <span style={{ color: '#ef4444' }}>*</span>
+                  <input
+                    autoFocus
+                    required
+                    placeholder={paymentType === 'income' ? 'e.g. Client Milestone 1 Deposit' : 'e.g. Concrete Pump Rental Fee'}
+                    value={paymentTitle}
+                    onChange={(e) => setPaymentTitle(e.target.value)}
+                    disabled={busy}
+                  />
+                </label>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                  <label>
+                    Amount (€) <span style={{ color: '#ef4444' }}>*</span>
+                    <input
+                      type="number"
+                      required
+                      min="1"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={paymentAmount || ''}
+                      onChange={(e) => setPaymentAmount(Number(e.target.value) || 0)}
+                      disabled={busy}
+                    />
+                  </label>
+
+                  <label>
+                    Category
+                    <select
+                      value={paymentCategory}
+                      onChange={(e) => setPaymentCategory(e.target.value)}
+                      disabled={busy}
+                      style={{ display: 'block', width: '100%', height: 42, border: '1px solid #e0e3e9', borderRadius: 6, padding: '0 10px', marginTop: 8, font: "12px 'DM Sans'", background: '#fff' }}
+                    >
+                      {paymentType === 'income' ? (
+                        <>
+                          <option value="client_payment">Client Invoice / Payment</option>
+                          <option value="deposit">Advance Deposit</option>
+                          <option value="refund">Refund / Credit</option>
+                        </>
+                      ) : (
+                        <>
+                          <option value="materials">Materials & Supplies</option>
+                          <option value="subcontractor">Subcontractor Fee</option>
+                          <option value="equipment">Equipment & Rental</option>
+                          <option value="permits">Permits & Licenses</option>
+                          <option value="other">Other Overhead</option>
+                        </>
+                      )}
+                    </select>
+                  </label>
+                </div>
+
+                <label>
+                  Notes / Payment Terms (optional)
+                  <input
+                    placeholder="e.g. Bank transfer reference #8492"
+                    value={paymentNotes}
+                    onChange={(e) => setPaymentNotes(e.target.value)}
+                    disabled={busy}
+                  />
+                </label>
+              </div>
+
+              <div className="modal-actions" style={{ marginTop: 24 }}>
+                <button type="button" className="secondary" onClick={() => setShowAddPaymentModal(false)} disabled={busy}>
+                  Cancel
+                </button>
+                <button className="primary" type="submit" disabled={busy || !paymentTitle.trim() || paymentAmount <= 0}>
+                  {busy ? <Loader2 size={16} className="spin" /> : <DollarSign size={16} />} Record Transaction
+                </button>
+              </div>
             </form>
           </div>
         )}
