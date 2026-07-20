@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
-import { getDashboardData, getAuditLogs } from '@/lib/data';
+import { getDashboardData, getAuditLogs, getCompanyFinancialSummary } from '@/lib/data';
 import { getGreeting, getTodayLabel } from '@/lib/format';
 import Dashboard from './_components/Dashboard';
 
@@ -16,7 +16,10 @@ export default async function Page() {
     redirect('/login');
   }
 
-  const auditLogs = await getAuditLogs(supabase, 8);
+  const [auditLogs, financialSummary] = await Promise.all([
+    getAuditLogs(supabase, 8),
+    getCompanyFinancialSummary(supabase),
+  ]);
 
   return (
     <Dashboard
@@ -26,6 +29,7 @@ export default async function Page() {
       tasks={data.tasks}
       stats={data.stats}
       auditLogs={auditLogs}
+      financialSummary={financialSummary}
       greeting={getGreeting(data.user.fullName)}
       todayLabel={getTodayLabel()}
     />

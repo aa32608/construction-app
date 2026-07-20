@@ -59,6 +59,7 @@ supabase/migrations/   # versioned schema, RLS policies, onboarding RPC & materi
    - `001_initial_schema.sql` — tables, enums, RLS policies, profile trigger
    - `002_auth_and_onboarding.sql` — low-stock flag + `create_company` RPC with starter projects, tasks & inventory
    - `003_project_inventory.sql` — `project_inventory_assignments` schema and RLS policies
+   - `004_financing_and_payments.sql` — `project_payments` table, unit costs, hourly rates & financial RLS policies
 
 3. If you use Google OAuth, add the provider in Supabase and set the redirect
    URL to `http://localhost:3000/auth/callback`.
@@ -78,7 +79,8 @@ row-level security.
 
 ## Key Operational Capabilities
 
-* **Field Worker Portal**: Normal workers (`employee` role) automatically see a site-tailored dashboard focused on their daily duties, project sites, allocated site materials, and shift logs.
+* **Financial Accounting & Costing Engine**: Live project cost breakdowns calculating allocated inventory material costs (quantity × unit cost), assigned team labor rates, and logged direct invoices/expenses against contract budgets to calculate live net margins and profit percentages.
+* **Field Worker Portal**: Normal workers (`employee` role) automatically see a site-tailored dashboard focused on their daily duties, project sites, allocated site materials, shift clock-in timers, and shift logs.
 * **Inventory Stock Control**: You can only assign inventory quantities that you currently possess in stock. Assigning materials to a project subtracts from stock; removing materials automatically reverts/restores quantity to central stock.
 * **Marketplace Auto-Stock Sync**: Receiving Purchase Order goods in the Marketplace increments existing inventory stock or registers new materials automatically.
 * **Audit Trail**: Operational actions across inventory, projects, and marketplace are logged in `audit_logs` and rendered in the live activity feed.

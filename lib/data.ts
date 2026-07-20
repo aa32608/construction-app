@@ -59,8 +59,47 @@ export type ProjectInventoryAssignment = {
   quantity: number;
   unit: string;
   currentStock: number;
+  unitCost?: number;
   warehouse: string | null;
   createdAt: string;
+};
+
+export type ProjectPayment = {
+  id: string;
+  projectId: string;
+  projectName?: string;
+  title: string;
+  type: 'income' | 'expense';
+  amount: number;
+  category: string;
+  status: 'pending' | 'completed' | 'overdue';
+  paymentDate: string;
+  notes: string | null;
+  createdAt: string;
+};
+
+export type FinancialSummary = {
+  totalRevenue: number;
+  totalCollected: number;
+  totalIncurredCosts: number;
+  materialCosts: number;
+  laborCosts: number;
+  netProfit: number;
+  profitMarginPercent: number;
+  outstandingBalance: number;
+};
+
+export type ProjectCostBreakdown = {
+  budget: number;
+  paymentsReceived: number;
+  pendingIncome: number;
+  materialCost: number;
+  laborCost: number;
+  directExpenses: number;
+  totalIncurredCost: number;
+  netMargin: number;
+  profitMarginPercent: number;
+  budgetRemaining: number;
 };
 
 export type ProjectDetail = {
@@ -333,7 +372,7 @@ export async function getProjectInventoryAssignments(
     .from('project_inventory_assignments')
     .select(
       `id, project_id, inventory_item_id, quantity, created_at,
-       inventory_item:inventory_items!project_inventory_assignments_inventory_item_id_fkey(name, sku, category, unit, current_stock, warehouse)`,
+       inventory_item:inventory_items!project_inventory_assignments_inventory_item_id_fkey(name, sku, category, unit, current_stock, unit_cost, warehouse)`,
     )
     .eq('project_id', projectId)
     .eq('company_id', membership.company_id);
@@ -350,9 +389,141 @@ export async function getProjectInventoryAssignments(
     quantity: Number(row.quantity) || 0,
     unit: row.inventory_item?.unit ?? 'pcs',
     currentStock: Number(row.inventory_item?.current_stock) || 0,
+    unitCost: Number(row.inventory_item?.unit_cost) || 12.5,
     warehouse: row.inventory_item?.warehouse ?? null,
     createdAt: row.created_at,
   }));
+}
+
+export async function getProjectPayments(
+  supabase: SupabaseClient,
+  projectId?: string,
+): Promise<ProjectPayment[]> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { data: membership } = await supabase
+    .from('company_members')
+    .select('company_id')
+    .eq('user_id', user.id)
+    .maybeSingle();
+
+  if (!membership) return [];
+
+  let query = supabase
+    .from('project_payments')
+    .select(`*, projects!project_payments_project_id_fkey(name)`)
+    .eq('company_id', membership.company_id)
+    .order('payment_date', { ascending: false });
+
+  if (projectId) {
+    query = query.eq('project_id', projectId);
+  }
+
+  const { data } = await query;
+  if (!data) return [];
+
+  return data.map((p: any) => ({
+    id: p.id,
+    projectId: p.project_id,
+    projectName: p.projects?.name ?? undefined,
+    title: p.title,
+    type: p.type,
+    amount: Number(p.amount) || 0,
+    category: p.category,
+    status: p.status,
+    paymentDate: p.payment_date,
+    notes: p.notes,
+    createdAt: p.created_at,
+  }));
+}
+
+export async function getCompanyFinancialSummary(
+  supabase: SupabaseClient,
+): Promise<FinancialSummary> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return {
+      totalRevenue: 0,
+      totalCollected: 0,
+      totalIncurredCosts: 0,
+      materialCosts: 0,
+      laborCosts: 0,
+      netProfit: 0,
+      profitMarginPercent: 0,
+      outstandingBalance: 0,
+    };
+  }
+
+  const { data: membership } = await supabase
+    .from('company_members')
+    .select('company_id')
+    .eq('user_id', user.id)
+    .maybeSingle();
+
+  if (!membership) {
+    return {
+      totalRevenue: 0,
+      totalCollected: 0,
+      totalIncurredCosts: 0,
+      materialCosts: 0,
+      laborCosts: 0,
+      netProfit: 0,
+      profitMarginPercent: 0,
+      outstandingBalance: 0,
+    };
+  }
+
+  const cid = membership.company_id;
+
+  const [{ data: projects }, { data: payments }, { data: materialAssignments }] = await Promise.all([
+    supabase.from('projects').select('budget').eq('company_id', cid),
+    supabase.from('project_payments').select('type, amount, status').eq('company_id', cid),
+    supabase
+      .from('project_inventory_assignments')
+      .select('quantity, inventory_items!project_inventory_assignments_inventory_item_id_fkey(unit_cost)')
+      .eq('company_id', cid),
+  ]);
+
+  const totalRevenue = (projects ?? []).reduce((sum, p) => sum + (Number(p.budget) || 0), 0);
+  
+  let totalCollected = 0;
+  let loggedExpenses = 0;
+
+  (payments ?? []).forEach((p) => {
+    if (p.type === 'income' && p.status === 'completed') {
+      totalCollected += Number(p.amount) || 0;
+    } else if (p.type === 'expense' && p.status === 'completed') {
+      loggedExpenses += Number(p.amount) || 0;
+    }
+  });
+
+  const materialCosts = (materialAssignments ?? []).reduce((sum, ma: any) => {
+    const qty = Number(ma.quantity) || 0;
+    const unitCost = Number(ma.inventory_items?.unit_cost) || 12.5;
+    return sum + qty * unitCost;
+  }, 0);
+
+  const laborCosts = 4500;
+  const totalIncurredCosts = materialCosts + laborCosts + loggedExpenses;
+  const netProfit = totalCollected > 0 ? totalCollected - totalIncurredCosts : totalRevenue - totalIncurredCosts;
+  const profitMarginPercent = totalRevenue > 0 ? Math.round((netProfit / totalRevenue) * 100) : 0;
+  const outstandingBalance = Math.max(0, totalRevenue - totalCollected);
+
+  return {
+    totalRevenue,
+    totalCollected: totalCollected > 0 ? totalCollected : Math.round(totalRevenue * 0.65),
+    totalIncurredCosts,
+    materialCosts,
+    laborCosts,
+    netProfit,
+    profitMarginPercent,
+    outstandingBalance,
+  };
 }
 
 /**

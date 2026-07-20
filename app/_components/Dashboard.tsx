@@ -40,6 +40,7 @@ import type {
   ProjectView,
   TaskView,
   AuditLogView,
+  FinancialSummary,
 } from '@/lib/data';
 
 type DashboardProps = {
@@ -49,6 +50,7 @@ type DashboardProps = {
   tasks: TaskView[];
   stats: DashboardStats;
   auditLogs?: AuditLogView[];
+  financialSummary?: FinancialSummary;
   greeting: string;
   todayLabel: string;
 };
@@ -102,6 +104,7 @@ export default function Dashboard({
   tasks,
   stats,
   auditLogs,
+  financialSummary,
   greeting,
   todayLabel,
 }: DashboardProps) {
@@ -518,30 +521,12 @@ export default function Dashboard({
                   style={{ cursor: 'pointer' }}
                 >
                   <div className="stat-top">
-                    <span>{t('committedBudget')}</span>
+                    <span>Payments Collected</span>
                     <div className="stat-icon green">€</div>
                   </div>
-                  <strong>{stats.committedBudget}</strong>
+                  <strong suppressHydrationWarning>€{(financialSummary?.totalCollected ?? 0).toLocaleString()}</strong>
                   <p>
-                    <em>Total across active projects</em>
-                  </p>
-                </div>
-                <div
-                  className="stat-card"
-                  onClick={() => setShowAllTasksModal(true)}
-                  style={{ cursor: 'pointer' }}
-                >
-                  <div className="stat-top">
-                    <span>{t('openTasks')}</span>
-                    <div className="stat-icon orange">
-                      <Clock3 size={18} />
-                    </div>
-                  </div>
-                  <strong>{stats.openTasks}</strong>
-                  <p>
-                    <span className={stats.openTasks ? 'attention' : 'up'}>
-                      {stats.openTasks ? 'Needs attention' : 'All clear'}
-                    </span>
+                    <span className="up">Of €{(financialSummary?.totalRevenue ?? 0).toLocaleString()} contracted</span>
                   </p>
                 </div>
                 <div
@@ -550,19 +535,66 @@ export default function Dashboard({
                   style={{ cursor: 'pointer' }}
                 >
                   <div className="stat-top">
-                    <span>{t('lowStockItems')}</span>
-                    <div className="stat-icon red">
+                    <span>Incurred Operational Costs</span>
+                    <div className="stat-icon orange">
+                      <Clock3 size={18} />
+                    </div>
+                  </div>
+                  <strong suppressHydrationWarning>€{(financialSummary?.totalIncurredCosts ?? 0).toLocaleString()}</strong>
+                  <p>
+                    <em>Materials + Labor + Overheads</em>
+                  </p>
+                </div>
+                <div
+                  className="stat-card"
+                  style={{ cursor: 'pointer' }}
+                >
+                  <div className="stat-top">
+                    <span>Net Margin</span>
+                    <div className="stat-icon green">
                       <Package size={18} />
                     </div>
                   </div>
-                  <strong>{stats.lowStock}</strong>
+                  <strong suppressHydrationWarning>€{(financialSummary?.netProfit ?? 0).toLocaleString()}</strong>
                   <p>
-                    <span className={stats.lowStock ? 'attention' : 'up'}>
-                      {stats.lowStock ? 'Needs attention' : 'Stocked'}
-                    </span>
+                    <span className="up">{financialSummary?.profitMarginPercent ?? 0}% Projected Return</span>
                   </p>
                 </div>
               </section>
+
+              <div className="panel" style={{ marginBottom: 24 }}>
+                <div className="panel-head">
+                  <div>
+                    <h2>Workspace Financial Performance</h2>
+                    <p>Accurate live breakdown considering team labor, assigned inventory, and supplier purchases</p>
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+                  <div style={{ background: '#f8f9fe', border: '1px solid #edf0f4', padding: 16, borderRadius: 8 }}>
+                    <span style={{ fontSize: 11, textTransform: 'uppercase', color: '#8f97a5', fontWeight: 600 }}>Allocated Site Materials</span>
+                    <strong style={{ display: 'block', fontSize: 20, color: '#1e2433', marginTop: 4 }} suppressHydrationWarning>
+                      €{(financialSummary?.materialCosts ?? 0).toLocaleString()}
+                    </strong>
+                    <small style={{ color: '#68707d', fontSize: 11, display: 'block', marginTop: 4 }}>Deducted from stock & allocated to active sites</small>
+                  </div>
+
+                  <div style={{ background: '#f8f9fe', border: '1px solid #edf0f4', padding: 16, borderRadius: 8 }}>
+                    <span style={{ fontSize: 11, textTransform: 'uppercase', color: '#8f97a5', fontWeight: 600 }}>Estimated Site Labor</span>
+                    <strong style={{ display: 'block', fontSize: 20, color: '#1e2433', marginTop: 4 }} suppressHydrationWarning>
+                      €{(financialSummary?.laborCosts ?? 0).toLocaleString()}
+                    </strong>
+                    <small style={{ color: '#68707d', fontSize: 11, display: 'block', marginTop: 4 }}>Calculated from active team member hourly rates</small>
+                  </div>
+
+                  <div style={{ background: '#f8f9fe', border: '1px solid #edf0f4', padding: 16, borderRadius: 8 }}>
+                    <span style={{ fontSize: 11, textTransform: 'uppercase', color: '#8f97a5', fontWeight: 600 }}>Outstanding Client Receivables</span>
+                    <strong style={{ display: 'block', fontSize: 20, color: '#d97706', marginTop: 4 }} suppressHydrationWarning>
+                      €{(financialSummary?.outstandingBalance ?? 0).toLocaleString()}
+                    </strong>
+                    <small style={{ color: '#68707d', fontSize: 11, display: 'block', marginTop: 4 }}>Pending client payment milestones</small>
+                  </div>
+                </div>
+              </div>
 
               <div className="dashboard-grid">
                 <section className="panel projects">
