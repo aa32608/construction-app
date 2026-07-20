@@ -124,11 +124,11 @@ export default function ProjectDetailClient({ user, membership, project: initial
   const [selectedMemberId, setSelectedMemberId] = useState('');
 
   // Assignment of Inventory Materials to Projects
-  const [allInventoryItems, setAllInventoryItems] = useState<{ id: string; name: string; unit: string; currentStock: number }[]>([]);
+  const [allInventoryItems, setAllInventoryItems] = useState<{ id: string; name: string; unit: string; currentStock: number; unitCost: number }[]>([]);
   const [showAssignMaterial, setShowAssignMaterial] = useState(false);
   const [selectedMaterialId, setSelectedMaterialId] = useState('');
   const [assignedQty, setAssignedQty] = useState(1);
-  const [assignedMaterials, setAssignedMaterials] = useState<{ id: string; name: string; quantity: number; unit: string }[]>([]);
+  const [assignedMaterials, setAssignedMaterials] = useState<{ id: string; name: string; quantity: number; unit: string; unitCost: number }[]>([]);
 
   // Linking Documents to Projects
   const [projectDocuments, setProjectDocuments] = useState<{ id: string; name: string; filePath: string }[]>([]);
@@ -179,7 +179,7 @@ export default function ProjectDetailClient({ user, membership, project: initial
       // Load inventory items
       const { data: invData } = await supabase
         .from('inventory_items')
-        .select('id, name, unit, current_stock')
+        .select('id, name, unit, current_stock, unit_cost')
         .eq('company_id', membership?.companyId || '');
       if (invData) {
         setAllInventoryItems(invData.map((i: any) => ({
@@ -187,6 +187,7 @@ export default function ProjectDetailClient({ user, membership, project: initial
           name: i.name,
           unit: i.unit ?? 'pcs',
           currentStock: Number(i.current_stock) || 0,
+          unitCost: Number(i.unit_cost) || 0,
         })));
       }
 
@@ -233,12 +234,14 @@ export default function ProjectDetailClient({ user, membership, project: initial
             name: m.itemName,
             quantity: m.quantity,
             unit: m.unit,
+            unitCost: m.unitCost ?? 0,
           }))
         );
       } else {
         const saved = localStorage.getItem(`assigned_materials_${project.id}`);
         if (saved) {
-          setAssignedMaterials(JSON.parse(saved));
+          const parsed = JSON.parse(saved);
+          setAssignedMaterials(parsed.map((m: any) => ({ ...m, unitCost: m.unitCost ?? 0 })));
         }
       }
 
@@ -328,7 +331,7 @@ export default function ProjectDetailClient({ user, membership, project: initial
     } else {
       updated = [
         ...assignedMaterials,
-        { id: material.id, name: material.name, quantity: assignedQty, unit: material.unit },
+        { id: material.id, name: material.name, quantity: assignedQty, unit: material.unit, unitCost: material.unitCost ?? 0 },
       ];
     }
     setAssignedMaterials(updated);
@@ -733,7 +736,7 @@ Report generated on ${new Date().toLocaleDateString()} via ConstructOS Operation
 
   // Material cost calculation (quantity * unitCost)
   const totalMaterialCost = assignedMaterials.reduce((sum, m) => {
-    const unitPrice = 12.5; // default fallback cost
+    const unitPrice = m.unitCost ?? 0;
     return sum + m.quantity * unitPrice;
   }, 0);
 

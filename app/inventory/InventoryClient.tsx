@@ -96,6 +96,7 @@ export default function InventoryClient({ user, membership, items: initialItems,
       unit: formData.get('unit') as string,
       currentStock: Number(formData.get('currentStock')) || 0,
       minimumStock: Number(formData.get('minimumStock')) || 0,
+      unitCost: Number(formData.get('unitCost')) || 0,
     };
 
     startTransition(async () => {
@@ -124,6 +125,7 @@ export default function InventoryClient({ user, membership, items: initialItems,
       unit: formData.get('unit') as string,
       currentStock: Number(formData.get('currentStock')) || 0,
       minimumStock: Number(formData.get('minimumStock')) || 0,
+      unitCost: Number(formData.get('unitCost')) || 0,
     };
 
     startTransition(async () => {
@@ -204,7 +206,7 @@ export default function InventoryClient({ user, membership, items: initialItems,
       alert('No inventory items available to export.');
       return;
     }
-    const headers = ['Item Name', 'SKU', 'Category', 'Warehouse', 'Current Stock', 'Minimum Stock', 'Unit', 'Status'];
+    const headers = ['Item Name', 'SKU', 'Category', 'Warehouse', 'Current Stock', 'Minimum Stock', 'Unit Cost', 'Unit', 'Status'];
     const rows = filteredItems.map((item) => {
       const status = getStockStatus(item);
       return [
@@ -214,6 +216,7 @@ export default function InventoryClient({ user, membership, items: initialItems,
         `"${(item.warehouse ?? '').replace(/"/g, '""')}"`,
         item.currentStock,
         item.minimumStock,
+        item.unitCost,
         item.unit,
         `"${status.label}"`,
       ];
@@ -511,6 +514,7 @@ export default function InventoryClient({ user, membership, items: initialItems,
                         <div>
                           <strong>{item.name}</strong>
                           {item.sku && <small style={{ color: '#a0a6b0', display: 'block' }}>SKU: {item.sku}</small>}
+                          <small style={{ color: '#8f97a5', display: 'block', fontSize: 11, marginTop: 2 }}>Unit Cost: €{(item.unitCost ?? 0).toFixed(2)}</small>
                         </div>
                       </div>
                       <span>{item.sku ?? '—'}</span>
@@ -659,6 +663,18 @@ export default function InventoryClient({ user, membership, items: initialItems,
                   />
                 </label>
                 <label>
+                  Unit Cost (€)
+                  <input
+                    type="number"
+                    name="unitCost"
+                    min="0"
+                    step="0.01"
+                    placeholder="e.g. 12.50"
+                    defaultValue="0"
+                    disabled={busy || isPending}
+                  />
+                </label>
+                <label>
                   Minimum stock
                   <input
                     type="number"
@@ -779,6 +795,17 @@ export default function InventoryClient({ user, membership, items: initialItems,
                       <PlusIcon size={16} />
                     </button>
                   </div>
+                </label>
+                <label>
+                  Unit Cost (€)
+                  <input
+                    type="number"
+                    name="unitCost"
+                    min="0"
+                    step="0.01"
+                    defaultValue={showEditItem.unitCost}
+                    disabled={busy || isPending}
+                  />
                 </label>
                 <label>
                   Minimum stock
