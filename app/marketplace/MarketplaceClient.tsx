@@ -158,26 +158,19 @@ export default function MarketplaceClient({
     unit: string;
     unitPrice: number;
     receivedQty: number;
-  }[]>([
-    {
-      id: 'poi-1',
-      poId: initialPOs[0]?.id || 'po-1',
-      productName: 'Portland Cement CEM I 52.5 R',
-      quantity: 100,
-      unit: 'pcs',
-      unitPrice: 14.5,
-      receivedQty: 40,
-    },
-    {
-      id: 'poi-2',
-      poId: initialPOs[0]?.id || 'po-1',
-      productName: 'Reinforced Steel Rebars 12mm',
-      quantity: 500,
-      unit: 'kg',
-      unitPrice: 2.2,
-      receivedQty: 500,
-    },
-  ]);
+  }[]>(
+    (initialPOs ?? []).flatMap((po) =>
+      (po.items ?? []).map((item: any) => ({
+        id: item.id,
+        poId: po.id,
+        productName: item.productName,
+        quantity: item.quantity,
+        unit: item.unit,
+        unitPrice: item.unitPrice,
+        receivedQty: item.receivedQty,
+      }))
+    )
+  );
   const [receiveItemId, setReceiveItemId] = useState('');
   const [receiveQtyInput, setReceiveQtyInput] = useState(1);
 
@@ -1014,6 +1007,7 @@ Authorized by ConstructOS Procurement Management.`;
                       <span>{r.projectName ?? 'Global / Stock'}</span>
                       <span suppressHydrationWarning>{r.dueDate ? new Date(r.dueDate).toLocaleDateString() : '—'}</span>
                       <span style={{ textAlign: 'right', fontWeight: 600 }}>{r.quotesCount}</span>
+                      <span style={{ fontSize: 11, color: '#68707d', textAlign: 'right' }}>{r.quoteRequestsCount} requests</span>
                       <span className="status-badge" style={{
                         background: r.status === 'draft' ? '#f0f2f5' : r.status === 'sent' ? '#eef1ff' : '#eaf7f0',
                         color: r.status === 'draft' ? '#68707d' : r.status === 'sent' ? '#4e64da' : '#43a47d'

@@ -258,8 +258,21 @@ export async function sendRFQAction(
 
   if (error) return { success: false, error: error.message };
 
-  // TODO: Create quote requests for each vendor (could be a separate table)
-  // For now, just update status
+  // Create quote requests for each vendor
+  if (vendorIds.length > 0) {
+    const { error: qrError } = await supabase
+      .from('quote_requests')
+      .insert(
+        vendorIds.map((vid) => ({
+          company_id: membership.company_id,
+          rfq_id: rfqId,
+          vendor_id: vid,
+          status: 'pending',
+          response_deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        })),
+      );
+    if (qrError) console.error('Quote request insert error:', qrError.message);
+  }
 
   revalidatePath('/marketplace');
   return { success: true };
@@ -535,7 +548,7 @@ export async function receivePOItemAction(
       const updatedStock = Number(matchedInv.current_stock) + receivedQty;
       await supabase
         .from('inventory_items')
-        .update({ current_stock: updatedStock })
+        .update({ current_stock: updatedStock, unit_cost: Number(poItem.unit_price) || 0 })
         .eq('id', matchedInv.id);
     } else {
       // Automatically create new inventory item for received goods
@@ -547,6 +560,7 @@ export async function receivePOItemAction(
           unit: poItem.unit || 'pcs',
           current_stock: receivedQty,
           minimum_stock: 10,
+          unit_cost: Number(poItem.unit_price) || 0,
         });
     }
   } else {
@@ -561,7 +575,7 @@ export async function receivePOItemAction(
       const updatedStock = Number(invItem.current_stock) + receivedQty;
       await supabase
         .from('inventory_items')
-        .update({ current_stock: updatedStock })
+        .update({ current_stock: updatedStock, unit_cost: Number(poItem.unit_price) || 0 })
         .eq('id', targetInvId);
     }
   }

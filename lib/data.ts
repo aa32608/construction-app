@@ -59,7 +59,7 @@ export type ProjectInventoryAssignment = {
   quantity: number;
   unit: string;
   currentStock: number;
-  unitCost?: number;
+  unitCost: number;
   warehouse: string | null;
   createdAt: string;
 };
@@ -389,7 +389,7 @@ export async function getProjectInventoryAssignments(
     quantity: Number(row.quantity) || 0,
     unit: row.inventory_item?.unit ?? 'pcs',
     currentStock: Number(row.inventory_item?.current_stock) || 0,
-    unitCost: Number(row.inventory_item?.unit_cost) || 12.5,
+    unitCost: Number(row.inventory_item?.unit_cost) || 0,
     warehouse: row.inventory_item?.warehouse ?? null,
     createdAt: row.created_at,
   }));
@@ -504,7 +504,7 @@ export async function getCompanyFinancialSummary(
 
   const materialCosts = (materialAssignments ?? []).reduce((sum, ma: any) => {
     const qty = Number(ma.quantity) || 0;
-    const unitCost = Number(ma.inventory_items?.unit_cost) || 12.5;
+    const unitCost = Number(ma.inventory_items?.unit_cost) || 0;
     return sum + qty * unitCost;
   }, 0);
 
@@ -871,6 +871,7 @@ export type InventoryItem = {
   currentStock: number;
   minimumStock: number;
   lowStock: boolean;
+  unitCost: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -942,6 +943,7 @@ export async function getInventoryItems(
     currentStock: Number(item.current_stock) || 0,
     minimumStock: Number(item.minimum_stock) || 0,
     lowStock: item.low_stock ?? false,
+    unitCost: Number(item.unit_cost) || 0,
     createdAt: item.created_at,
     updatedAt: item.updated_at,
   }));
@@ -1001,11 +1003,17 @@ export async function getInventoryStats(
   const categories = [...new Set(itemRows.map((i: any) => i.category).filter(Boolean))] as string[];
   const warehouses = [...new Set(itemRows.map((i: any) => i.warehouse).filter(Boolean))] as string[];
 
+  const totalValue = itemRows.reduce((sum: number, i: any) => {
+    const qty = Number(i.current_stock) || 0;
+    const cost = Number(i.unit_cost) || 0;
+    return sum + qty * cost;
+  }, 0);
+
   return {
     totalItems: itemRows.length,
     lowStockCount: lowStockCount ?? 0,
     outOfStockCount: outOfStockCount ?? 0,
-    totalValue: 0, // Would need unit cost field
+    totalValue,
     categories,
     warehouses,
   };
@@ -1046,6 +1054,7 @@ export async function createInventoryItem(
       unit: item.unit,
       current_stock: item.currentStock,
       minimum_stock: item.minimumStock,
+      unit_cost: item.unitCost,
     })
     .select()
     .single();
@@ -1064,6 +1073,7 @@ export async function createInventoryItem(
       currentStock: Number(data.current_stock) || 0,
       minimumStock: Number(data.minimum_stock) || 0,
       lowStock: data.low_stock ?? false,
+      unitCost: Number(data.unit_cost) || 0,
       createdAt: data.created_at,
       updatedAt: data.updated_at,
     },
@@ -1104,6 +1114,7 @@ export async function updateInventoryItem(
       unit: updates.unit,
       current_stock: updates.currentStock,
       minimum_stock: updates.minimumStock,
+      unit_cost: updates.unitCost,
     })
     .eq('id', itemId)
     .eq('company_id', membership.company_id);
@@ -1517,6 +1528,7 @@ export type RFQ = {
   updatedAt: string;
   items: RFQItem[];
   quotesCount: number;
+  quoteRequestsCount: number;
 };
 
 export type RFQItem = {
@@ -1735,7 +1747,7 @@ export async function getRFQs(
 
   let query = supabase
     .from('rfqs')
-    .select(`*, projects!rfqs_project_id_fkey(name), rfq_items(count)`)
+    .select(`*, projects!rfqs_project_id_fkey(name), rfq_items(count), quote_requests(count)`)
     .eq('company_id', membership.company_id)
     .order('created_at', { ascending: false });
 
@@ -1766,6 +1778,7 @@ export async function getRFQs(
     updatedAt: r.updated_at,
     items: [],
     quotesCount: r.rfq_items?.[0]?.count ?? 0,
+    quoteRequestsCount: r.quote_requests?.[0]?.count ?? 0,
   }));
 }
 
@@ -1803,6 +1816,11 @@ export async function getRFQDetail(
     .select('*')
     .eq('rfq_id', rfqId);
 
+  const { data: quoteReqs } = await supabase
+    .from('quote_requests')
+    .select('id', { count: 'exact', head: true })
+    .eq('rfq_id', rfqId);
+
   return {
     id: rfq.id,
     rfqNumber: rfq.rfq_number,
@@ -1827,6 +1845,7 @@ export async function getRFQDetail(
       neededBy: i.needed_by,
     })),
     quotesCount: 0,
+    quoteRequestsCount: (quoteReqs as any)?.count ?? 0,
   };
 }
 
@@ -2011,7 +2030,7 @@ export async function getPurchaseOrders(
 
   let query = supabase
     .from('purchase_orders')
-    .select(`*, projects!purchase_orders_project_id_fkey(name), vendors!purchase_orders_vendor_id_fkey(name), po_items(count)`)
+    .select(`*, projects!purchase_orders_project_id_fkey(name), vendors!purchase_orders_vendor_id_fkey(name), po_items(id, product_name, description, quantity, unit, unit_price, total_price, received_qty, inventory_item_id, purchase_order_id)`)
     .eq('company_id', membership.company_id)
     .order('created_at', { ascending: false });
 
@@ -2044,7 +2063,18 @@ export async function getPurchaseOrders(
     createdByName: '',
     createdAt: po.created_at,
     updatedAt: po.updated_at,
-    items: [],
+    items: (po.po_items ?? []).map((item: any) => ({
+      id: item.id,
+      purchaseOrderId: item.purchase_order_id,
+      productName: item.product_name ?? 'Unknown',
+      description: item.description ?? null,
+      quantity: Number(item.quantity) || 0,
+      unit: item.unit ?? 'pcs',
+      unitPrice: Number(item.unit_price) || 0,
+      totalPrice: Number(item.total_price) || 0,
+      receivedQty: Number(item.received_qty) || 0,
+      inventoryItemId: item.inventory_item_id ?? null,
+    })),
   }));
 }
 

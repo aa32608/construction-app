@@ -36,6 +36,7 @@ export async function createInventoryItemAction(
       unit: item.unit,
       current_stock: item.currentStock,
       minimum_stock: item.minimumStock,
+      unit_cost: item.unitCost,
     })
     .select()
     .single();
@@ -55,6 +56,7 @@ export async function createInventoryItemAction(
       currentStock: Number(data.current_stock) || 0,
       minimumStock: Number(data.minimum_stock) || 0,
       lowStock: data.low_stock ?? false,
+      unitCost: Number(data.unit_cost) || 0,
       createdAt: data.created_at,
       updatedAt: data.updated_at,
     },
@@ -93,6 +95,7 @@ export async function updateInventoryItemAction(
       unit: updates.unit,
       current_stock: updates.currentStock,
       minimum_stock: updates.minimumStock,
+      unit_cost: updates.unitCost,
     })
     .eq('id', itemId)
     .eq('company_id', membership.company_id);
